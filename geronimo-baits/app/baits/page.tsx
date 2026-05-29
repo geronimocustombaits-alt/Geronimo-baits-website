@@ -19,13 +19,20 @@ type CartItem = Product & {
 };
 
 export default function BaitsPage() {
+  const searchParams = useSearchParams();
+
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('Warhawk 3.5"');
-  const searchParams = useSearchParams();
   const [cart, setCart] = useState<CartItem[]>([]);
+
   const [huntBoxMode, setHuntBoxMode] = useState(false);
   const [huntBoxSize, setHuntBoxSize] = useState(0);
   const [huntBoxName, setHuntBoxName] = useState("");
+
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [deliveryMethod, setDeliveryMethod] = useState("PUDO Locker");
 
   useEffect(() => {
     async function loadProducts() {
@@ -36,25 +43,26 @@ export default function BaitsPage() {
 
     loadProducts();
   }, []);
+
   useEffect(() => {
-  const condition = searchParams.get("condition");
+    const condition = searchParams.get("condition");
 
-  if (condition === "muddy") {
-    setSelectedCategory('WarCraws 3.5"');
-  }
+    if (condition === "muddy") {
+      setSelectedCategory('WarCraws 3.5"');
+    }
 
-  if (condition === "clear") {
-    setSelectedCategory('Apache Stick 5"');
-  }
+    if (condition === "clear") {
+      setSelectedCategory('Apache Stick 5"');
+    }
 
-  if (condition === "morning") {
-    setSelectedCategory('Warhawk 3.5"');
-  }
+    if (condition === "morning") {
+      setSelectedCategory('Warhawk 3.5"');
+    }
 
-  if (condition === "overcast") {
-    setSelectedCategory('WarFrogs 4"');
-  }
-}, [searchParams]);
+    if (condition === "overcast") {
+      setSelectedCategory('WarFrogs 4"');
+    }
+  }, [searchParams]);
 
   const categories = [
     'Warhawk 3.5"',
@@ -66,6 +74,24 @@ export default function BaitsPage() {
     'WarGrubs 3"',
   ];
 
+  const huntBoxes = [
+    {
+      name: "SCOUT BOX",
+      size: 3,
+      description: "Perfect starter selection.",
+    },
+    {
+      name: "HUNTER BOX",
+      size: 5,
+      description: "Built for a serious session.",
+    },
+    {
+      name: "WAR BOX",
+      size: 8,
+      description: "Full attack mode.",
+    },
+  ];
+
   const cleanText = (text: string) =>
     text.replace(/\\"/g, '"').replace(/"/g, "").trim();
 
@@ -74,6 +100,17 @@ export default function BaitsPage() {
   );
 
   const cartPackCount = cart.reduce((total, item) => total + item.qty, 0);
+
+  const cartTotal = cart.reduce(
+    (total, item) => total + Number(item.price) * item.qty,
+    0
+  );
+
+  const checkoutReady =
+    customerName.trim() !== "" &&
+    customerPhone.trim() !== "" &&
+    customerEmail.trim() !== "" &&
+    deliveryMethod.trim() !== "";
 
   const startHuntBox = (name: string, size: number) => {
     setHuntBoxMode(true);
@@ -94,6 +131,7 @@ export default function BaitsPage() {
 
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => item.sku === product.sku);
+
       const currentPackCount = currentCart.reduce(
         (total, item) => total + item.qty,
         0
@@ -119,47 +157,31 @@ export default function BaitsPage() {
     setCart((currentCart) => currentCart.filter((item) => item.sku !== sku));
   };
 
-  const cartTotal = cart.reduce(
-    (total, item) => total + Number(item.price) * item.qty,
-    0
-  );
-
   const checkoutMessage = encodeURIComponent(
-    huntBoxMode
-      ? `Hi Geronimo Baits, I want to order a ${huntBoxName}:\n\n${cart
-          .map(
-            (item) =>
-              `${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
-          )
-          .join("\n")}\n\nTotal Packs: ${cartPackCount}/${huntBoxSize}\nTotal: R${cartTotal}`
-      : `Hi Geronimo Baits, I want to place an order:\n\n${cart
-          .map(
-            (item) =>
-              `${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
-          )
-          .join("\n")}\n\nTotal: R${cartTotal}`
+    `🎣 GERONIMO BAITS ORDER
+
+Name: ${customerName}
+Phone: ${customerPhone}
+Email: ${customerEmail}
+
+Delivery: ${deliveryMethod}
+
+ORDER:
+${cart
+  .map(
+    (item) =>
+      `• ${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
+  )
+  .join("\n")}
+
+${huntBoxMode ? `Hunt Box: ${huntBoxName}` : ""}
+Total Packs: ${cartPackCount}
+Total Value: R${cartTotal}
+
+Built to Hunt.`
   );
 
-  const huntBoxes = [
-    {
-      name: "SCOUT BOX",
-      size: 3,
-      image: "/hunt-boxes/scout-box.jpeg",
-      description: "Perfect starter selection.",
-    },
-    {
-      name: "HUNTER BOX",
-      size: 5,
-      image: "/hunt-boxes/hunter-box.jpeg",
-      description: "Built for a serious session.",
-    },
-    {
-      name: "WAR BOX",
-      size: 8,
-      image: "/hunt-boxes/war-box.jpeg",
-      description: "Full attack mode.",
-    },
-  ];
+  const condition = searchParams.get("condition");
 
   return (
     <main
@@ -182,129 +204,106 @@ export default function BaitsPage() {
           Choose your bait category, add to cart, and checkout on WhatsApp.
         </p>
       </div>
-      
-{/* WATER CONDITIONS BANNER */}
-{searchParams.get("condition") === "muddy" && (
-  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
-    <h3 className="text-2xl font-black text-green-500">
-      🌊 MUDDY WATER MODE
-    </h3>
 
-    <p className="mt-4 text-gray-300">
-      Recommended Colours:
-    </p>
+      {condition === "muddy" && (
+        <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
+          <h3 className="text-2xl font-black text-green-500">
+            🌊 MUDDY WATER MODE
+          </h3>
+          <p className="mt-4 text-gray-300">Recommended Colours:</p>
+          <ul className="mt-3 space-y-2 text-white">
+            <li>• Black Magic</li>
+            <li>• Junebug</li>
+            <li>• Black & Blue</li>
+          </ul>
+          <p className="mt-4 text-sm text-gray-400">
+            Dark profiles stand out best in dirty water.
+          </p>
+        </div>
+      )}
 
-    <ul className="mt-3 space-y-2 text-white">
-      <li>• Black Magic</li>
-      <li>• Junebug</li>
-      <li>• Black & Blue</li>
-    </ul>
+      {condition === "clear" && (
+        <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
+          <h3 className="text-2xl font-black text-green-500">
+            ☀️ CLEAR WATER MODE
+          </h3>
+          <p className="mt-4 text-gray-300">Recommended Colours:</p>
+          <ul className="mt-3 space-y-2 text-white">
+            <li>• Cotton Crush</li>
+            <li>• White Pearl</li>
+          </ul>
+          <p className="mt-4 text-sm text-gray-400">
+            Natural colours excel in clear water.
+          </p>
+        </div>
+      )}
 
-    <p className="mt-4 text-sm text-gray-400">
-      Dark profiles stand out best in dirty water.
-    </p>
-  </div>
-)}
+      {condition === "morning" && (
+        <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
+          <h3 className="text-2xl font-black text-green-500">
+            🌅 EARLY MORNING MODE
+          </h3>
+          <p className="mt-4 text-gray-300">Recommended Colours:</p>
+          <ul className="mt-3 space-y-2 text-white">
+            <li>• Motoroil</li>
+            <li>• Junebug</li>
+          </ul>
+          <p className="mt-4 text-sm text-gray-400">
+            Low-light conditions favour darker silhouettes.
+          </p>
+        </div>
+      )}
 
-{searchParams.get("condition") === "clear" && (
-  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
-    <h3 className="text-2xl font-black text-green-500">
-      ☀️ CLEAR WATER MODE
-    </h3>
+      {condition === "overcast" && (
+        <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
+          <h3 className="text-2xl font-black text-green-500">
+            ☁️ OVERCAST MODE
+          </h3>
+          <p className="mt-4 text-gray-300">Recommended Colours:</p>
+          <ul className="mt-3 space-y-2 text-white">
+            <li>• Watermelon Red</li>
+            <li>• Motoroil</li>
+          </ul>
+          <p className="mt-4 text-sm text-gray-400">
+            Extra visibility without looking unnatural.
+          </p>
+        </div>
+      )}
 
-    <p className="mt-4 text-gray-300">
-      Recommended Colours:
-    </p>
-
-    <ul className="mt-3 space-y-2 text-white">
-      <li>• Cotton Crush</li>
-      <li>• White Pearl</li>
-    </ul>
-
-    <p className="mt-4 text-sm text-gray-400">
-      Natural colours excel in clear water.
-    </p>
-  </div>
-)}
-
-{searchParams.get("condition") === "morning" && (
-  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
-    <h3 className="text-2xl font-black text-green-500">
-      🌅 EARLY MORNING MODE
-    </h3>
-
-    <p className="mt-4 text-gray-300">
-      Recommended Colours:
-    </p>
-
-    <ul className="mt-3 space-y-2 text-white">
-      <li>• Motoroil</li>
-      <li>• Junebug</li>
-    </ul>
-
-    <p className="mt-4 text-sm text-gray-400">
-      Low-light conditions favour darker silhouettes.
-    </p>
-  </div>
-)}
-
-{searchParams.get("condition") === "overcast" && (
-  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
-    <h3 className="text-2xl font-black text-green-500">
-      ☁️ OVERCAST MODE
-    </h3>
-
-    <p className="mt-4 text-gray-300">
-      Recommended Colours:
-    </p>
-
-    <ul className="mt-3 space-y-2 text-white">
-      <li>• Watermelon Red</li>
-      <li>• Motoroil</li>
-    </ul>
-
-    <p className="mt-4 text-sm text-gray-400">
-      Extra visibility without looking unnatural.
-    </p>
-  </div>
-)}
       <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
         <h2 className="text-2xl font-black tracking-widest text-green-500">
           BUILD YOUR HUNT BOX
         </h2>
 
         <p className="mt-2 text-gray-300">
-          Choose your Geronimo box, fill it with baits, then checkout on WhatsApp.
+          Choose your Geronimo box, fill it with baits, then checkout on
+          WhatsApp.
         </p>
 
-       <div className="mt-6 grid gap-6 md:grid-cols-3">
+        <div className="mt-6 grid gap-6 md:grid-cols-3">
           {huntBoxes.map((box) => (
-  <button
-    key={box.name}
-    onClick={() => startHuntBox(box.name, box.size)}
-    className={`rounded-2xl border p-8 text-center transition ${
-      huntBoxName === box.name
-        ? "border-green-500 bg-green-500 text-black"
-        : "border-green-500/40 bg-black/60 text-white hover:border-green-500"
-    }`}
-  >
-    <p className="text-3xl font-black text-green-500">
-      {box.name}
-    </p>
+            <button
+              key={box.name}
+              onClick={() => startHuntBox(box.name, box.size)}
+              className={`rounded-2xl border p-8 text-center transition ${
+                huntBoxName === box.name
+                  ? "border-green-500 bg-green-500 text-black"
+                  : "border-green-500/40 bg-black/60 text-white hover:border-green-500"
+              }`}
+            >
+              <p className="text-3xl font-black text-green-500">
+                {box.name}
+              </p>
 
-    <p className="mt-3 text-lg font-bold">
-      {box.size} PACKS
-    </p>
+              <p className="mt-3 text-lg font-bold">{box.size} PACKS</p>
 
-    <p className="mt-3 text-sm opacity-80">
-      {box.description}
-    </p>
+              <p className="mt-3 text-sm opacity-80">{box.description}</p>
 
-    <p className="mt-5 rounded-xl border border-green-500/40 px-4 py-3 text-sm font-black">
-      SELECT BOX
-    </p>
-  </button>
-))}
+              <p className="mt-5 rounded-xl border border-green-500/40 px-4 py-3 text-sm font-black">
+                SELECT BOX
+              </p>
+            </button>
+          ))}
         </div>
 
         {huntBoxMode && (
@@ -329,7 +328,10 @@ export default function BaitsPage() {
               <div
                 className="h-full bg-green-500 transition-all"
                 style={{
-                  width: `${Math.min((cartPackCount / huntBoxSize) * 100, 100)}%`,
+                  width: `${Math.min(
+                    (cartPackCount / huntBoxSize) * 100,
+                    100
+                  )}%`,
                 }}
               ></div>
             </div>
@@ -347,9 +349,9 @@ export default function BaitsPage() {
             <div className="grid gap-6 md:grid-cols-2">
               {filteredProducts.map((product) => {
                 const stock = Number(product.stockQty);
+
                 const canAdd =
-                  stock > 0 &&
-                  (!huntBoxMode || cartPackCount < huntBoxSize);
+                  stock > 0 && (!huntBoxMode || cartPackCount < huntBoxSize);
 
                 return (
                   <div
@@ -362,7 +364,8 @@ export default function BaitsPage() {
                         alt={product.colour}
                         className="h-full w-full object-cover transition duration-500 hover:scale-110"
                         onError={(e) => {
-                          e.currentTarget.src = "/product-images/no-image.jpeg";
+                          e.currentTarget.src =
+                            "/product-images/no-image.jpeg";
                           e.currentTarget.className =
                             "max-h-full max-w-full object-contain";
                         }}
@@ -410,6 +413,41 @@ export default function BaitsPage() {
           </div>
 
           <aside className="h-fit space-y-6 lg:sticky lg:top-24">
+            <div className="rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
+  <h3 className="mb-5 text-xl font-bold tracking-widest text-green-500">
+    WATER CONDITIONS
+  </h3>
+
+  <div className="flex flex-col gap-3">
+    <a
+      href="/baits?condition=muddy"
+      className="rounded-xl border border-green-500 px-4 py-3 text-left font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+    >
+      🌊 Muddy Water
+    </a>
+
+    <a
+      href="/baits?condition=clear"
+      className="rounded-xl border border-green-500 px-4 py-3 text-left font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+    >
+      ☀️ Clear Water
+    </a>
+
+    <a
+      href="/baits?condition=morning"
+      className="rounded-xl border border-green-500 px-4 py-3 text-left font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+    >
+      🌅 Early Morning
+    </a>
+
+    <a
+      href="/baits?condition=overcast"
+      className="rounded-xl border border-green-500 px-4 py-3 text-left font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+    >
+      ☁️ Overcast
+    </a>
+  </div>
+</div>
             <div className="rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
               <h3 className="mb-5 text-xl font-bold tracking-widest text-green-500">
                 CATEGORIES
@@ -467,16 +505,53 @@ export default function BaitsPage() {
                     </div>
                   ))}
 
+                  <div className="mb-5 space-y-3">
+                    <input
+                      type="text"
+                      placeholder="Full Name"
+                      value={customerName}
+                      onChange={(e) => setCustomerName(e.target.value)}
+                      className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
+                    />
+
+                    <input
+                      type="tel"
+                      placeholder="Phone Number"
+                      value={customerPhone}
+                      onChange={(e) => setCustomerPhone(e.target.value)}
+                      className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
+                    />
+
+                    <input
+                      type="email"
+                      placeholder="Email Address"
+                      value={customerEmail}
+                      onChange={(e) => setCustomerEmail(e.target.value)}
+                      className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
+                    />
+
+                    <select
+                      value={deliveryMethod}
+                      onChange={(e) => setDeliveryMethod(e.target.value)}
+                      className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
+                    >
+                      <option>PUDO Locker</option>
+                      <option>PUDO Door-to-Door</option>
+                      <option>Collection</option>
+                    </select>
+                  </div>
+
                   <div className="border-t border-green-500/20 pt-4">
                     <p className="text-lg font-bold text-white">
-                      Total: <span className="text-green-500">R{cartTotal}</span>
+                      Total:{" "}
+                      <span className="text-green-500">R{cartTotal}</span>
                     </p>
 
                     {huntBoxMode && cartPackCount !== huntBoxSize ? (
                       <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
                         COMPLETE YOUR HUNT BOX
                       </div>
-                    ) : (
+                    ) : checkoutReady ? (
                       <a
                         href={`https://wa.me/${whatsappNumber}?text=${checkoutMessage}`}
                         target="_blank"
@@ -486,6 +561,10 @@ export default function BaitsPage() {
                           ? "COMPLETE HUNT BOX"
                           : "CHECKOUT ON WHATSAPP"}
                       </a>
+                    ) : (
+                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+                        COMPLETE YOUR DETAILS
+                      </div>
                     )}
                   </div>
                 </div>
