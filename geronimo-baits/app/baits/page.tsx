@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 
 const whatsappNumber = "27675380595";
 
@@ -13,9 +14,18 @@ type Product = {
   stockQty: string;
 };
 
+type CartItem = Product & {
+  qty: number;
+};
+
 export default function BaitsPage() {
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState("Warhawk");
+  const [selectedCategory, setSelectedCategory] = useState('Warhawk 3.5"');
+  const searchParams = useSearchParams();
+  const [cart, setCart] = useState<CartItem[]>([]);
+  const [huntBoxMode, setHuntBoxMode] = useState(false);
+  const [huntBoxSize, setHuntBoxSize] = useState(0);
+  const [huntBoxName, setHuntBoxName] = useState("");
 
   useEffect(() => {
     async function loadProducts() {
@@ -26,19 +36,129 @@ export default function BaitsPage() {
 
     loadProducts();
   }, []);
+  useEffect(() => {
+  const condition = searchParams.get("condition");
 
-  const filteredProducts = products.filter(
-    (product) => product.bait === selectedCategory
-  );
+  if (condition === "muddy") {
+    setSelectedCategory('WarCraws 3.5"');
+  }
+
+  if (condition === "clear") {
+    setSelectedCategory('Apache Stick 5"');
+  }
+
+  if (condition === "morning") {
+    setSelectedCategory('Warhawk 3.5"');
+  }
+
+  if (condition === "overcast") {
+    setSelectedCategory('WarFrogs 4"');
+  }
+}, [searchParams]);
 
   const categories = [
-    "Warhawk",
-    "Apache Stick 5",
-    "Apache Stick 4",
-    "Phantoms",
-    "WarFrogs",
-    "WarCraws",
-    "WarGrubs",
+    'Warhawk 3.5"',
+    'Apache Stick 5"',
+    'Apache Stick 4"',
+    'Phantoms 3.5"',
+    'WarFrogs 4"',
+    'WarCraws 3.5"',
+    'WarGrubs 3"',
+  ];
+
+  const cleanText = (text: string) =>
+    text.replace(/\\"/g, '"').replace(/"/g, "").trim();
+
+  const filteredProducts = products.filter(
+    (product) => cleanText(product.bait) === cleanText(selectedCategory)
+  );
+
+  const cartPackCount = cart.reduce((total, item) => total + item.qty, 0);
+
+  const startHuntBox = (name: string, size: number) => {
+    setHuntBoxMode(true);
+    setHuntBoxName(name);
+    setHuntBoxSize(size);
+    setCart([]);
+  };
+
+  const clearHuntBox = () => {
+    setHuntBoxMode(false);
+    setHuntBoxName("");
+    setHuntBoxSize(0);
+    setCart([]);
+  };
+
+  const addToCart = (product: Product) => {
+    const stock = Number(product.stockQty);
+
+    setCart((currentCart) => {
+      const existingItem = currentCart.find((item) => item.sku === product.sku);
+      const currentPackCount = currentCart.reduce(
+        (total, item) => total + item.qty,
+        0
+      );
+
+      if (huntBoxMode && currentPackCount >= huntBoxSize) {
+        return currentCart;
+      }
+
+      if (existingItem) {
+        if (existingItem.qty >= stock) return currentCart;
+
+        return currentCart.map((item) =>
+          item.sku === product.sku ? { ...item, qty: item.qty + 1 } : item
+        );
+      }
+
+      return [...currentCart, { ...product, qty: 1 }];
+    });
+  };
+
+  const removeFromCart = (sku: string) => {
+    setCart((currentCart) => currentCart.filter((item) => item.sku !== sku));
+  };
+
+  const cartTotal = cart.reduce(
+    (total, item) => total + Number(item.price) * item.qty,
+    0
+  );
+
+  const checkoutMessage = encodeURIComponent(
+    huntBoxMode
+      ? `Hi Geronimo Baits, I want to order a ${huntBoxName}:\n\n${cart
+          .map(
+            (item) =>
+              `${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
+          )
+          .join("\n")}\n\nTotal Packs: ${cartPackCount}/${huntBoxSize}\nTotal: R${cartTotal}`
+      : `Hi Geronimo Baits, I want to place an order:\n\n${cart
+          .map(
+            (item) =>
+              `${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
+          )
+          .join("\n")}\n\nTotal: R${cartTotal}`
+  );
+
+  const huntBoxes = [
+    {
+      name: "SCOUT BOX",
+      size: 3,
+      image: "/hunt-boxes/scout-box.jpeg",
+      description: "Perfect starter selection.",
+    },
+    {
+      name: "HUNTER BOX",
+      size: 5,
+      image: "/hunt-boxes/hunter-box.jpeg",
+      description: "Built for a serious session.",
+    },
+    {
+      name: "WAR BOX",
+      size: 8,
+      image: "/hunt-boxes/war-box.jpeg",
+      description: "Full attack mode.",
+    },
   ];
 
   return (
@@ -53,18 +173,172 @@ export default function BaitsPage() {
         ← HOME
       </a>
 
-      <div className="mx-auto mb-14 max-w-4xl rounded-3xl border border-green-500/30 bg-black/90 p-8 text-center backdrop-blur-md">
+      <div className="mx-auto mb-10 max-w-4xl rounded-3xl border border-green-500/30 bg-black/90 p-8 text-center backdrop-blur-md">
         <h1 className="text-5xl font-bold tracking-[0.25em]">
           BAIT <span className="text-green-500">RANGE</span>
         </h1>
 
         <p className="mx-auto mt-4 max-w-2xl text-gray-300">
-          Choose your bait category and build your order.
+          Choose your bait category, add to cart, and checkout on WhatsApp.
         </p>
+      </div>
+      
+{/* WATER CONDITIONS BANNER */}
+{searchParams.get("condition") === "muddy" && (
+  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
+    <h3 className="text-2xl font-black text-green-500">
+      🌊 MUDDY WATER MODE
+    </h3>
+
+    <p className="mt-4 text-gray-300">
+      Recommended Colours:
+    </p>
+
+    <ul className="mt-3 space-y-2 text-white">
+      <li>• Black Magic</li>
+      <li>• Junebug</li>
+      <li>• Black & Blue</li>
+    </ul>
+
+    <p className="mt-4 text-sm text-gray-400">
+      Dark profiles stand out best in dirty water.
+    </p>
+  </div>
+)}
+
+{searchParams.get("condition") === "clear" && (
+  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
+    <h3 className="text-2xl font-black text-green-500">
+      ☀️ CLEAR WATER MODE
+    </h3>
+
+    <p className="mt-4 text-gray-300">
+      Recommended Colours:
+    </p>
+
+    <ul className="mt-3 space-y-2 text-white">
+      <li>• Cotton Crush</li>
+      <li>• White Pearl</li>
+    </ul>
+
+    <p className="mt-4 text-sm text-gray-400">
+      Natural colours excel in clear water.
+    </p>
+  </div>
+)}
+
+{searchParams.get("condition") === "morning" && (
+  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
+    <h3 className="text-2xl font-black text-green-500">
+      🌅 EARLY MORNING MODE
+    </h3>
+
+    <p className="mt-4 text-gray-300">
+      Recommended Colours:
+    </p>
+
+    <ul className="mt-3 space-y-2 text-white">
+      <li>• Motoroil</li>
+      <li>• Junebug</li>
+    </ul>
+
+    <p className="mt-4 text-sm text-gray-400">
+      Low-light conditions favour darker silhouettes.
+    </p>
+  </div>
+)}
+
+{searchParams.get("condition") === "overcast" && (
+  <div className="mb-8 rounded-3xl border border-green-500 bg-black/80 p-6">
+    <h3 className="text-2xl font-black text-green-500">
+      ☁️ OVERCAST MODE
+    </h3>
+
+    <p className="mt-4 text-gray-300">
+      Recommended Colours:
+    </p>
+
+    <ul className="mt-3 space-y-2 text-white">
+      <li>• Watermelon Red</li>
+      <li>• Motoroil</li>
+    </ul>
+
+    <p className="mt-4 text-sm text-gray-400">
+      Extra visibility without looking unnatural.
+    </p>
+  </div>
+)}
+      <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
+        <h2 className="text-2xl font-black tracking-widest text-green-500">
+          BUILD YOUR HUNT BOX
+        </h2>
+
+        <p className="mt-2 text-gray-300">
+          Choose your Geronimo box, fill it with baits, then checkout on WhatsApp.
+        </p>
+
+       <div className="mt-6 grid gap-6 md:grid-cols-3">
+          {huntBoxes.map((box) => (
+  <button
+    key={box.name}
+    onClick={() => startHuntBox(box.name, box.size)}
+    className={`rounded-2xl border p-8 text-center transition ${
+      huntBoxName === box.name
+        ? "border-green-500 bg-green-500 text-black"
+        : "border-green-500/40 bg-black/60 text-white hover:border-green-500"
+    }`}
+  >
+    <p className="text-3xl font-black text-green-500">
+      {box.name}
+    </p>
+
+    <p className="mt-3 text-lg font-bold">
+      {box.size} PACKS
+    </p>
+
+    <p className="mt-3 text-sm opacity-80">
+      {box.description}
+    </p>
+
+    <p className="mt-5 rounded-xl border border-green-500/40 px-4 py-3 text-sm font-black">
+      SELECT BOX
+    </p>
+  </button>
+))}
+        </div>
+
+        {huntBoxMode && (
+          <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/70 p-5">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <p className="text-lg font-bold">
+                {huntBoxName}:{" "}
+                <span className="text-green-500">
+                  {cartPackCount}/{huntBoxSize} packs selected
+                </span>
+              </p>
+
+              <button
+                onClick={clearHuntBox}
+                className="rounded-xl border border-red-500 px-4 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"
+              >
+                CLEAR HUNT BOX
+              </button>
+            </div>
+
+            <div className="mt-4 h-3 overflow-hidden rounded-full bg-zinc-800">
+              <div
+                className="h-full bg-green-500 transition-all"
+                style={{
+                  width: `${Math.min((cartPackCount / huntBoxSize) * 100, 100)}%`,
+                }}
+              ></div>
+            </div>
+          </div>
+        )}
       </div>
 
       <section className="mx-auto max-w-7xl">
-        <div className="grid gap-8 lg:grid-cols-[1fr_280px]">
+        <div className="grid gap-8 lg:grid-cols-[1fr_300px]">
           <div className="rounded-3xl border border-green-500/30 bg-black/60 p-8 backdrop-blur-sm">
             <h2 className="mb-8 text-3xl font-bold text-green-500">
               {selectedCategory}
@@ -73,18 +347,26 @@ export default function BaitsPage() {
             <div className="grid gap-6 md:grid-cols-2">
               {filteredProducts.map((product) => {
                 const stock = Number(product.stockQty);
-
-                const orderMessage = encodeURIComponent(
-                  `Hi Geronimo Baits, I want to order ${product.bait} ${product.size} in ${product.colour}. SKU: ${product.sku}`
-                );
+                const canAdd =
+                  stock > 0 &&
+                  (!huntBoxMode || cartPackCount < huntBoxSize);
 
                 return (
                   <div
                     key={product.sku}
                     className="rounded-3xl border border-green-500/20 bg-black/70 p-6 transition duration-300 hover:-translate-y-2 hover:border-green-500 hover:shadow-lg hover:shadow-green-500/20"
                   >
-                    <div className="mb-5 flex h-56 items-center justify-center rounded-2xl bg-zinc-800/70 text-gray-500">
-                      Product Image
+                    <div className="mb-5 flex h-60 items-center justify-center overflow-hidden rounded-2xl bg-zinc-800/70">
+                      <img
+                        src={`/product-images/${product.sku}.jpeg`}
+                        alt={product.colour}
+                        className="h-full w-full object-cover transition duration-500 hover:scale-110"
+                        onError={(e) => {
+                          e.currentTarget.src = "/product-images/no-image.jpeg";
+                          e.currentTarget.className =
+                            "max-h-full max-w-full object-contain";
+                        }}
+                      />
                     </div>
 
                     <h3 className="text-2xl font-bold text-white">
@@ -95,9 +377,7 @@ export default function BaitsPage() {
                       R{product.price} / Pack
                     </p>
 
-                    <p className="mt-3 text-gray-300">
-                      {product.bait} — {product.size}
-                    </p>
+                    <p className="mt-3 text-gray-300">{product.bait}</p>
 
                     <p
                       className={`mt-3 font-bold ${
@@ -107,17 +387,20 @@ export default function BaitsPage() {
                       {stock > 0 ? `${stock} in stock` : "Out of stock"}
                     </p>
 
-                    {stock > 0 ? (
-                      <a
-                        href={`https://wa.me/${whatsappNumber}?text=${orderMessage}`}
-                        target="_blank"
-                        className="mt-6 block rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
-                      >
-                        ADD TO ORDER
-                      </a>
-                    ) : (
+                    {stock <= 0 ? (
                       <div className="mt-6 block rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
                         OUT OF STOCK
+                      </div>
+                    ) : canAdd ? (
+                      <button
+                        onClick={() => addToCart(product)}
+                        className="mt-6 block w-full rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
+                      >
+                        {huntBoxMode ? "ADD TO HUNT BOX" : "ADD TO CART"}
+                      </button>
+                    ) : (
+                      <div className="mt-6 block rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+                        HUNT BOX FULL
                       </div>
                     )}
                   </div>
@@ -126,25 +409,87 @@ export default function BaitsPage() {
             </div>
           </div>
 
-          <aside className="h-fit rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md lg:sticky lg:top-24">
-            <h3 className="mb-5 text-xl font-bold tracking-widest text-green-500">
-              CATEGORIES
-            </h3>
+          <aside className="h-fit space-y-6 lg:sticky lg:top-24">
+            <div className="rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
+              <h3 className="mb-5 text-xl font-bold tracking-widest text-green-500">
+                CATEGORIES
+              </h3>
 
-            <div className="flex flex-col gap-3">
-              {categories.map((category) => (
-                <button
-                  key={category}
-                  onClick={() => setSelectedCategory(category)}
-                  className={`rounded-xl px-4 py-3 text-left font-bold transition ${
-                    selectedCategory === category
-                      ? "bg-green-500 text-black"
-                      : "border border-green-500 text-green-500 hover:bg-green-500 hover:text-black"
-                  }`}
-                >
-                  {category}
-                </button>
-              ))}
+              <div className="flex flex-col gap-3">
+                {categories.map((category) => (
+                  <button
+                    key={category}
+                    onClick={() => setSelectedCategory(category)}
+                    className={`rounded-xl px-4 py-3 text-left font-bold transition ${
+                      selectedCategory === category
+                        ? "bg-green-500 text-black"
+                        : "border border-green-500 text-green-500 hover:bg-green-500 hover:text-black"
+                    }`}
+                  >
+                    {category}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-green-500/30 bg-black/80 p-6 backdrop-blur-md">
+              <h3 className="mb-5 text-xl font-bold tracking-widest text-green-500">
+                {huntBoxMode
+                  ? `${huntBoxName} (${cartPackCount}/${huntBoxSize})`
+                  : `CART (${cartPackCount})`}
+              </h3>
+
+              {cart.length === 0 ? (
+                <p className="text-gray-400">
+                  {huntBoxMode
+                    ? "Choose baits to fill your Hunt Box."
+                    : "Your cart is empty."}
+                </p>
+              ) : (
+                <div className="space-y-4">
+                  {cart.map((item) => (
+                    <div
+                      key={item.sku}
+                      className="rounded-xl border border-green-500/20 bg-black/60 p-4"
+                    >
+                      <p className="font-bold text-white">{item.colour}</p>
+                      <p className="text-sm text-gray-400">{item.bait}</p>
+                      <p className="mt-1 text-sm text-green-500">
+                        {item.qty}x R{item.price}
+                      </p>
+
+                      <button
+                        onClick={() => removeFromCart(item.sku)}
+                        className="mt-2 text-sm font-bold text-red-400 hover:text-red-300"
+                      >
+                        REMOVE
+                      </button>
+                    </div>
+                  ))}
+
+                  <div className="border-t border-green-500/20 pt-4">
+                    <p className="text-lg font-bold text-white">
+                      Total: <span className="text-green-500">R{cartTotal}</span>
+                    </p>
+
+                    {huntBoxMode && cartPackCount !== huntBoxSize ? (
+                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+                        COMPLETE YOUR HUNT BOX
+                      </div>
+                    ) : (
+                      <a
+                        href={`https://wa.me/${whatsappNumber}?text=${checkoutMessage}`}
+                        target="_blank"
+                        className="mt-4 block rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
+                      >
+                        {huntBoxMode
+                          ? "COMPLETE HUNT BOX"
+                          : "CHECKOUT ON WHATSAPP"}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </aside>
         </div>
