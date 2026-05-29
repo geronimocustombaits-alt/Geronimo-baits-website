@@ -378,10 +378,8 @@ export default function Home() {
             "catch16.jpeg",
             "catch17.jpeg",
             "catch18.jpeg",
-            "catch1.jpeg",
-            "catch2.jpeg",
-            "catch3.jpeg",
-            "catch4.jpeg",
+            "catch19.jpeg",
+            
           ].map((image, index) => (
             <img
               key={index}
