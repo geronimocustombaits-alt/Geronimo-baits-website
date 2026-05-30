@@ -69,9 +69,9 @@ export default function BaitsPage() {
     'Apache Stick 5"',
     'Apache Stick 4"',
     'Phantoms 3.5"',
-    'WarFrogs 4"',
-    'WarCraws 3.5"',
-    'WarGrubs 3"',
+    'Warfrogs 4"',
+    'Warcraws 3.5"',
+    'Wargrubs 3"',
   ];
 
   const huntBoxes = [

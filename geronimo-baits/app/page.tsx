@@ -74,6 +74,12 @@ export default function Home() {
             >
               WHATSAPP US
             </a>
+            <a
+  href="/remelt-zone"
+  className="rounded-xl border border-green-500 px-8 py-4 text-xl font-black text-orange-500 transition hover:bg-green-500 hover:text-black"
+>
+  ♻️ REMELT ZONE
+</a>
           </div>
         </div>
       </section>
