@@ -249,10 +249,8 @@ export default function Home() {
         </div>
       </section>
       {/* SA WATER CONDITIONS GUIDE */}
-{/* SA WATER CONDITIONS GUIDE */}
 <section className="px-6 py-24">
   <div className="mx-auto max-w-7xl">
-
     <div className="mb-16 text-center">
       <p className="text-sm font-bold tracking-[0.4em] text-green-500">
         BUILT FOR SOUTH AFRICAN WATERS
@@ -329,7 +327,7 @@ export default function Home() {
         </a>
       </div>
 
-      {/* OVERCAST */}
+           {/* OVERCAST */}
       <div className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500">
         <div className="mb-4 text-5xl">☁️</div>
 
@@ -364,37 +362,56 @@ export default function Home() {
           <h2 className="mt-5 text-5xl font-black">THE HUNT GALLERY</h2>
         </div>
 
-        <div className="flex animate-gallery gap-6 whitespace-nowrap">
-          {[
-            "catch1.jpeg",
-            "catch2.jpeg",
-            "catch3.jpeg",
-            "catch4.jpeg",
-            "catch5.jpeg",
-            "catch6.jpeg",
-            "catch7.jpeg",
-            "catch8.jpeg",
-            "catch9.jpeg",
-            "catch10.jpeg",
-            "catch11.jpeg",
-            "catch12.jpeg",
-            "catch13.jpeg",
-            "catch14.jpeg",
-            "catch15.jpeg",
-            "catch16.jpeg",
-            "catch17.jpeg",
-            "catch18.jpeg",
-            "catch19.jpeg",
-            
-          ].map((image, index) => (
-            <img
-              key={index}
-              src={`/${image}`}
-              alt={`Catch ${index + 1}`}
-              className="h-[420px] w-[300px] flex-none rounded-3xl object-cover"
-            />
-          ))}
-        </div>
+        <div className="overflow-hidden">
+  <div className="flex w-max animate-gallery gap-6">
+    {[
+      "catch1.jpeg",
+      "catch2.jpeg",
+      "catch3.jpeg",
+      "catch4.jpeg",
+      "catch5.jpeg",
+      "catch6.jpeg",
+      "catch7.jpeg",
+      "catch8.jpeg",
+      "catch9.jpeg",
+      "catch10.jpeg",
+      "catch11.jpeg",
+      "catch12.jpeg",
+      "catch13.jpeg",
+      "catch14.jpeg",
+      "catch15.jpeg",
+      "catch16.jpeg",
+      "catch17.jpeg",
+      "catch18.jpeg",
+      "catch19.jpeg",
+      "catch1.jpeg",
+      "catch2.jpeg",
+      "catch3.jpeg",
+      "catch4.jpeg",
+      "catch5.jpeg",
+      "catch6.jpeg",
+      "catch7.jpeg",
+      "catch8.jpeg",
+      "catch9.jpeg",
+      "catch10.jpeg",
+      "catch11.jpeg",
+      "catch12.jpeg",
+      "catch13.jpeg",
+      "catch14.jpeg",
+      "catch15.jpeg",
+      "catch16.jpeg",
+      "catch17.jpeg",
+      "catch18.jpeg",
+      "catch19.jpeg",
+    ].map((image, index) => (
+      <img
+        key={index}
+        src={`/${image}`}
+        alt={`Catch ${index + 1}`}
+        className="h-[420px] w-[300px] flex-none rounded-3xl object-cover"
+      />
+    ))}
+  </div></div>
       </section>
 
       {/* CONTACT */}

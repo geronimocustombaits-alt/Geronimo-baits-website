@@ -42,12 +42,15 @@ body {
   0% {
     transform: translateX(0);
   }
-
   100% {
     transform: translateX(-50%);
   }
 }
 
 .animate-gallery {
-  animation: gallery 35s linear infinite;
+  animation: gallery 80s linear infinite;
+}
+
+.animate-gallery {
+  animation: gallery 60s linear infinite;
 }

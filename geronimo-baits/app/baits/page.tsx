@@ -105,6 +105,14 @@ export default function BaitsPage() {
     (total, item) => total + Number(item.price) * item.qty,
     0
   );
+  const shippingCost =
+  deliveryMethod === "PUDO Locker"
+    ? 60
+    : deliveryMethod === "PUDO Door-to-Door"
+    ? 110
+    : 0;
+
+const grandTotal = cartTotal + shippingCost;
 
   const checkoutReady =
     customerName.trim() !== "" &&
@@ -176,7 +184,9 @@ ${cart
 
 ${huntBoxMode ? `Hunt Box: ${huntBoxName}` : ""}
 Total Packs: ${cartPackCount}
-Total Value: R${cartTotal}
+Products Total: R${cartTotal}
+Shipping: R${shippingCost}
+Grand Total: R${grandTotal}
 
 Built to Hunt.`
   );
@@ -542,25 +552,66 @@ Built to Hunt.`
                   </div>
 
                   <div className="border-t border-green-500/20 pt-4">
-                    <p className="text-lg font-bold text-white">
-                      Total:{" "}
-                      <span className="text-green-500">R{cartTotal}</span>
-                    </p>
+  <p className="text-lg font-bold text-white">
+    Order Summary
+  </p>
+
+  <div className="space-y-2 text-sm">
+    <div className="flex justify-between">
+      <span>Products</span>
+      <span>R{cartTotal}</span>
+    </div>
+
+  <div className="flex justify-between">
+    <span>Shipping</span>
+    <span>R{shippingCost}</span>
+  </div>
+
+  <div className="border-t border-green-500/20 pt-2 flex justify-between text-lg font-black">
+    <span>Total</span>
+    <span className="text-green-500">R{grandTotal}</span>
+  </div>
+</div>
 
                     {huntBoxMode && cartPackCount !== huntBoxSize ? (
                       <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
                         COMPLETE YOUR HUNT BOX
                       </div>
                     ) : checkoutReady ? (
-                      <a
-                        href={`https://wa.me/${whatsappNumber}?text=${checkoutMessage}`}
-                        target="_blank"
-                        className="mt-4 block rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
-                      >
-                        {huntBoxMode
-                          ? "COMPLETE HUNT BOX"
-                          : "CHECKOUT ON WHATSAPP"}
-                      </a>
+                     <button
+  onClick={async () => {
+    try {
+      await fetch("/api/send-order", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          customerName,
+          customerPhone,
+          customerEmail,
+          deliveryMethod,
+          cartTotal,
+          shippingCost,
+          grandTotal,
+          items: cart,
+        }),
+      });
+
+      window.open(
+        `https://wa.me/${whatsappNumber}?text=${checkoutMessage}`,
+        "_blank"
+      );
+    } catch (error) {
+      console.error("Email failed:", error);
+    }
+  }}
+  className="mt-4 block w-full rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
+>
+  {huntBoxMode
+    ? "COMPLETE HUNT BOX"
+    : "CHECKOUT ON WHATSAPP"}
+</button>
                     ) : (
                       <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
                         COMPLETE YOUR DETAILS
