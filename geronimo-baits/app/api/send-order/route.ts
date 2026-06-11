@@ -16,6 +16,8 @@ export async function POST(req: Request) {
     const html = `
       <h2>🎣 New Geronimo Baits Order</h2>
 
+      <p><strong>Order Number:</strong> ${order.orderNumber}</p>
+
       <p><strong>Name:</strong> ${order.customerName}</p>
       <p><strong>Phone:</strong> ${order.customerPhone}</p>
       <p><strong>Email:</strong> ${order.customerEmail}</p>

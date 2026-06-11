@@ -92,6 +92,8 @@ export default function BaitsPage() {
 
   const grandTotal = cartTotal + shippingCost;
 
+  const orderNumber = `GB-${Date.now()}`;
+
   const checkoutReady =
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
@@ -161,6 +163,8 @@ export default function BaitsPage() {
 
   const checkoutMessage = encodeURIComponent(
     `🎣 GERONIMO BAITS ORDER
+
+    Order Number: ${orderNumber}
 
 Name: ${customerName}
 Phone: ${customerPhone}
@@ -541,38 +545,36 @@ Built to Hunt.`
                         </button>
 
                         <button
-                          onClick={async () => {
-                            try {
-                              await sendOrderEmail();
+  onClick={async () => {
+    try {
+      await sendOrderEmail();
 
-                              const response = await fetch(
-                                "/api/create-payfast-payment",
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    customerName,
-                                    customerEmail,
-                                    grandTotal,
-                                  }),
-                                }
-                              );
+      const response = await fetch("/api/create-payfast-payment", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderNumber,
+          customerName,
+          customerEmail,
+          grandTotal,
+        }),
+      });
 
-                              const data = await response.json();
+      const data = await response.json();
 
-                              if (data.paymentUrl) {
-                                window.location.href = data.paymentUrl;
-                              }
-                            } catch (error) {
-                              console.error("PayFast failed:", error);
-                            }
-                          }}
-                          className="mt-3 block w-full rounded-xl border border-green-500 bg-black px-5 py-3 text-center font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
-                        >
-                          PAY NOW WITH PAYFAST
-                        </button>
+      if (data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+      }
+    } catch (error) {
+      console.error("PayFast failed:", error);
+    }
+  }}
+  className="mt-4 block w-full rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
+>
+  PAY NOW WITH PAYFAST
+</button>
                       </>
                     ) : (
                       <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
