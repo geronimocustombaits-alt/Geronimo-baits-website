@@ -47,7 +47,7 @@ export async function POST(req: Request) {
 
     await resend.emails.send({
       from: "Geronimo Baits <onboarding@resend.dev>",
-      to: order.customerEmail,
+     to: process.env.ORDER_EMAIL || "geronimocustombaits@gmail.com",
       subject: "Your Geronimo Baits Order Confirmation",
       html,
     });
