@@ -6,6 +6,23 @@ export async function POST(req: Request) {
 
     const order = await req.json();
 
+    if (process.env.ORDERS_WEBHOOK_URL) {
+  const sheetResponse = await fetch(process.env.ORDERS_WEBHOOK_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify(order),
+  });
+
+  const sheetResult = await sheetResponse.text();
+
+  console.log("SHEET STATUS:", sheetResponse.status);
+  console.log("SHEET RESULT:", sheetResult);
+} else {
+  console.log("ORDERS_WEBHOOK_URL missing");
+}
+
     const orderLines = order.items
       .map(
         (item: any) =>

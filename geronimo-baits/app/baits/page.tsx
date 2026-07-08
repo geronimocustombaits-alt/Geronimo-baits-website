@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const whatsappNumber = "27675380595";
@@ -20,6 +20,9 @@ type CartItem = Product & {
 
 export default function BaitsPage() {
   const searchParams = useSearchParams();
+
+  const orderNumberRef = useRef(`GB-${Date.now()}`);
+  const orderNumber = orderNumberRef.current;
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('Warhawk 3.5"');
@@ -92,8 +95,6 @@ export default function BaitsPage() {
 
   const grandTotal = cartTotal + shippingCost;
 
-  const orderNumber = `GB-${Date.now()}`;
-
   const checkoutReady =
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
@@ -119,6 +120,7 @@ export default function BaitsPage() {
 
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => item.sku === product.sku);
+
       const currentPackCount = currentCart.reduce(
         (total, item) => total + item.qty,
         0
@@ -142,13 +144,16 @@ export default function BaitsPage() {
     setCart((currentCart) => currentCart.filter((item) => item.sku !== sku));
   };
 
-  const sendOrderEmail = async () => {
+  const sendOrderEmail = async (
+    paymentMethod: "Website" | "WhatsApp" | "PayFast" = "Website"
+  ) => {
     await fetch("/api/send-order", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
+        orderNumber,
         customerName,
         customerPhone,
         customerEmail,
@@ -156,6 +161,9 @@ export default function BaitsPage() {
         cartTotal,
         shippingCost,
         grandTotal,
+        paymentMethod,
+        paymentStatus: "Pending",
+        orderStatus: "Processing",
         items: cart,
       }),
     });
@@ -164,7 +172,7 @@ export default function BaitsPage() {
   const checkoutMessage = encodeURIComponent(
     `🎣 GERONIMO BAITS ORDER
 
-    Order Number: ${orderNumber}
+Order Number: ${orderNumber}
 
 Name: ${customerName}
 Phone: ${customerPhone}
@@ -207,6 +215,7 @@ Built to Hunt.`
         <h1 className="text-5xl font-bold tracking-[0.25em]">
           BAIT <span className="text-green-500">RANGE</span>
         </h1>
+
         <p className="mx-auto mt-4 max-w-2xl text-gray-300">
           Choose your bait category, add to cart, and checkout on WhatsApp.
         </p>
@@ -214,7 +223,9 @@ Built to Hunt.`
 
       {condition === "muddy" && (
         <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
-          <h3 className="text-2xl font-black text-green-500">🌊 MUDDY WATER MODE</h3>
+          <h3 className="text-2xl font-black text-green-500">
+            🌊 MUDDY WATER MODE
+          </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
             <li>• Black Magic</li>
@@ -226,7 +237,9 @@ Built to Hunt.`
 
       {condition === "clear" && (
         <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
-          <h3 className="text-2xl font-black text-green-500">☀️ CLEAR WATER MODE</h3>
+          <h3 className="text-2xl font-black text-green-500">
+            ☀️ CLEAR WATER MODE
+          </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
             <li>• Cotton Crush</li>
@@ -237,7 +250,9 @@ Built to Hunt.`
 
       {condition === "morning" && (
         <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
-          <h3 className="text-2xl font-black text-green-500">🌅 EARLY MORNING MODE</h3>
+          <h3 className="text-2xl font-black text-green-500">
+            🌅 EARLY MORNING MODE
+          </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
             <li>• Motoroil</li>
@@ -248,7 +263,9 @@ Built to Hunt.`
 
       {condition === "overcast" && (
         <div className="mx-auto mb-8 max-w-7xl rounded-3xl border border-green-500 bg-black/80 p-6">
-          <h3 className="text-2xl font-black text-green-500">☁️ OVERCAST MODE</h3>
+          <h3 className="text-2xl font-black text-green-500">
+            ☁️ OVERCAST MODE
+          </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
             <li>• Watermelon Red</li>
@@ -261,6 +278,7 @@ Built to Hunt.`
         <h2 className="text-2xl font-black tracking-widest text-green-500">
           BUILD YOUR HUNT BOX
         </h2>
+
         <p className="mt-2 text-gray-300">
           Choose your Geronimo box, fill it with baits, then checkout.
         </p>
@@ -308,7 +326,10 @@ Built to Hunt.`
               <div
                 className="h-full bg-green-500 transition-all"
                 style={{
-                  width: `${Math.min((cartPackCount / huntBoxSize) * 100, 100)}%`,
+                  width: `${Math.min(
+                    (cartPackCount / huntBoxSize) * 100,
+                    100
+                  )}%`,
                 }}
               />
             </div>
@@ -326,6 +347,7 @@ Built to Hunt.`
             <div className="grid gap-6 md:grid-cols-2">
               {filteredProducts.map((product) => {
                 const stock = Number(product.stockQty);
+
                 const canAdd =
                   stock > 0 && (!huntBoxMode || cartPackCount < huntBoxSize);
 
@@ -350,9 +372,11 @@ Built to Hunt.`
                     <h3 className="text-2xl font-bold text-white">
                       {product.colour}
                     </h3>
+
                     <p className="mt-2 text-lg font-bold text-green-500">
                       R{product.price} / Pack
                     </p>
+
                     <p className="mt-3 text-gray-300">{product.bait}</p>
 
                     <p
@@ -392,16 +416,28 @@ Built to Hunt.`
               </h3>
 
               <div className="flex flex-col gap-3">
-                <a href="/baits?condition=muddy" className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black">
+                <a
+                  href="/baits?condition=muddy"
+                  className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+                >
                   🌊 Muddy Water
                 </a>
-                <a href="/baits?condition=clear" className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black">
+                <a
+                  href="/baits?condition=clear"
+                  className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+                >
                   ☀️ Clear Water
                 </a>
-                <a href="/baits?condition=morning" className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black">
+                <a
+                  href="/baits?condition=morning"
+                  className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+                >
                   🌅 Early Morning
                 </a>
-                <a href="/baits?condition=overcast" className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black">
+                <a
+                  href="/baits?condition=overcast"
+                  className="rounded-xl border border-green-500 px-4 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+                >
                   ☁️ Overcast
                 </a>
               </div>
@@ -501,7 +537,9 @@ Built to Hunt.`
                   </div>
 
                   <div className="border-t border-green-500/20 pt-4">
-                    <p className="text-lg font-bold text-white">Order Summary</p>
+                    <p className="text-lg font-bold text-white">
+                      Order Summary
+                    </p>
 
                     <div className="mt-3 space-y-2 text-sm">
                       <div className="flex justify-between">
@@ -521,66 +559,65 @@ Built to Hunt.`
                     </div>
 
                     {huntBoxMode && cartPackCount !== huntBoxSize ? (
-                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
-                        COMPLETE YOUR HUNT BOX
-                      </div>
-                    ) : checkoutReady ? (
-                      <>
-                        <button
-                          onClick={async () => {
-                            try {
-                              await sendOrderEmail();
+  <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+    COMPLETE YOUR HUNT BOX
+  </div>
+) : checkoutReady ? (
+  <>
+    <button
+      onClick={async () => {
+        try {
+          await sendOrderEmail("PayFast");
 
-                              window.open(
-                                `https://wa.me/${whatsappNumber}?text=${checkoutMessage}`,
-                                "_blank"
-                              );
-                            } catch (error) {
-                              console.error("Email failed:", error);
-                            }
-                          }}
-                          className="mt-4 block w-full rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
-                        >
-                          {huntBoxMode ? "COMPLETE HUNT BOX" : "CHECKOUT ON WHATSAPP"}
-                        </button>
+          const response = await fetch("/api/create-payfast-payment", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              orderNumber,
+              customerName,
+              customerEmail,
+              grandTotal,
+            }),
+          });
 
-                        <button
-  onClick={async () => {
-    try {
-      await sendOrderEmail();
+          const data = await response.json();
 
-      const response = await fetch("/api/create-payfast-payment", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          orderNumber,
-          customerName,
-          customerEmail,
-          grandTotal,
-        }),
-      });
+          if (data.paymentUrl) {
+            window.location.href = data.paymentUrl;
+          }
+        } catch (error) {
+          console.error("PayFast failed:", error);
+        }
+      }}
+      className="mt-6 w-full rounded-2xl border-2 border-green-500 bg-gradient-to-r from-green-500 to-green-400 px-6 py-5 text-xl font-black tracking-wide text-black shadow-lg shadow-green-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/60"
+    >
+      💳 SECURE CHECKOUT
+      <div className="mt-1 text-sm font-semibold">
+        Pay securely with PayFast
+      </div>
+    </button>
 
-      const data = await response.json();
+    <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/60 p-5 text-center">
+      <p className="text-sm text-gray-300">
+        Need help with your order or looking for a custom colour?
+      </p>
 
-      if (data.paymentUrl) {
-        window.location.href = data.paymentUrl;
-      }
-    } catch (error) {
-      console.error("PayFast failed:", error);
-    }
-  }}
-  className="mt-4 block w-full rounded-xl bg-green-500 px-5 py-3 text-center font-bold text-black transition hover:scale-105 hover:bg-green-400"
->
-  PAY NOW WITH PAYFAST
-</button>
-                      </>
-                    ) : (
-                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
-                        COMPLETE YOUR DETAILS
-                      </div>
-                    )}
+      <a
+        href="https://wa.me/27675380595"
+        target="_blank"
+        className="mt-4 inline-block rounded-xl border border-green-500 px-6 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+      >
+        💬 Chat with us on WhatsApp
+      </a>
+    </div>
+  </>
+) : (
+  <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+    COMPLETE YOUR DETAILS
+  </div>
+)}
                   </div>
                 </div>
               )}

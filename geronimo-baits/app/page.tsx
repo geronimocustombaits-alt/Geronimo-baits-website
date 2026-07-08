@@ -20,11 +20,10 @@ export default function Home() {
           </div>
 
           <a
-            href="https://wa.me/27675380595"
-            target="_blank"
+            href="#contact"
             className="rounded-2xl border border-green-500 px-6 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
           >
-            ORDER
+            CONTACT US
           </a>
         </div>
       </nav>
@@ -72,14 +71,15 @@ export default function Home() {
               target="_blank"
               className="rounded-2xl border border-green-500 bg-black/40 px-10 py-5 text-xl font-black text-white backdrop-blur-md transition hover:bg-green-500 hover:text-black"
             >
-              WHATSAPP US
+              💬 CHAT WITH US
             </a>
+
             <a
-  href="/remelt-zone"
-  className="rounded-xl border border-green-500 px-8 py-4 text-xl font-black text-orange-500 transition hover:bg-green-500 hover:text-black"
->
-  ♻️ REMELT ZONE
-</a>
+              href="/remelt-zone"
+              className="rounded-xl border border-green-500 px-8 py-4 text-xl font-black text-orange-500 transition hover:bg-green-500 hover:text-black"
+            >
+              ♻️ REMELT ZONE
+            </a>
           </div>
         </div>
       </section>
@@ -219,7 +219,6 @@ export default function Home() {
           <h2 className="mt-4 text-5xl font-black md:text-6xl">
             WHY ANGLERS CHOOSE US
           </h2>
-          
 
           <p className="mx-auto mt-6 max-w-3xl text-lg text-gray-300">
             Every bait is designed with one purpose in mind: helping anglers
@@ -248,109 +247,52 @@ export default function Home() {
           </div>
         </div>
       </section>
+
       {/* SA WATER CONDITIONS GUIDE */}
-<section className="px-6 py-24">
-  <div className="mx-auto max-w-7xl">
-    <div className="mb-16 text-center">
-      <p className="text-sm font-bold tracking-[0.4em] text-green-500">
-        BUILT FOR SOUTH AFRICAN WATERS
-      </p>
+      <section className="px-6 py-24">
+        <div className="mx-auto max-w-7xl">
+          <div className="mb-16 text-center">
+            <p className="text-sm font-bold tracking-[0.4em] text-green-500">
+              BUILT FOR SOUTH AFRICAN WATERS
+            </p>
 
-      <h2 className="mt-4 text-5xl font-black md:text-6xl">
-        WATER CONDITIONS GUIDE
-      </h2>
+            <h2 className="mt-4 text-5xl font-black md:text-6xl">
+              WATER CONDITIONS GUIDE
+            </h2>
 
-      <p className="mx-auto mt-6 max-w-3xl text-lg text-gray-300">
-        Not sure what to throw? Start with the right conditions and hunt the range.
-      </p>
-    </div>
+            <p className="mx-auto mt-6 max-w-3xl text-lg text-gray-300">
+              Not sure what to throw? Start with the right conditions and hunt the range.
+            </p>
+          </div>
 
-    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+            {[
+              ["🌊", "MUDDY WATER", "Low visibility. Dark silhouettes dominate.", "/baits?condition=muddy", "HUNT MUDDY WATER BAITS"],
+              ["☀️", "CLEAR WATER", "Natural presentation and subtle action.", "/baits?condition=clear", "HUNT CLEAR WATER BAITS"],
+              ["🌅", "EARLY MORNING", "Low light means darker colours shine.", "/baits?condition=morning", "HUNT EARLY MORNING BAITS"],
+              ["☁️", "OVERCAST", "Extra visibility without being too aggressive.", "/baits?condition=overcast", "HUNT OVERCAST BAITS"],
+            ].map(([icon, title, text, link, button]) => (
+              <div
+                key={title}
+                className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500"
+              >
+                <div className="mb-4 text-5xl">{icon}</div>
 
-      {/* MUDDY WATER */}
-      <div className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500">
-        <div className="mb-4 text-5xl">🌊</div>
+                <h3 className="text-2xl font-black">{title}</h3>
 
-        <h3 className="text-2xl font-black">
-          MUDDY WATER
-        </h3>
+                <p className="mt-4 text-gray-400">{text}</p>
 
-        <p className="mt-4 text-gray-400">
-          Low visibility. Dark silhouettes dominate.
-        </p>
-
-        <a
-         href="/baits?condition=muddy"
-          className="mt-6 block rounded-xl border border-green-500 bg-black px-4 py-4 text-center font-black tracking-wide text-green-500 transition hover:bg-green-500 hover:text-black"
-        >
-          🌊 HUNT MUDDY WATER BAITS →
-        </a>
-      </div>
-
-      {/* CLEAR WATER */}
-      <div className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500">
-        <div className="mb-4 text-5xl">☀️</div>
-
-        <h3 className="text-2xl font-black">
-          CLEAR WATER
-        </h3>
-
-        <p className="mt-4 text-gray-400">
-          Natural presentation and subtle action.
-        </p>
-
-        <a
-          href="/baits?condition=clear"
-          className="mt-6 block rounded-xl border border-green-500 bg-black px-4 py-4 text-center font-black tracking-wide text-green-500 transition hover:bg-green-500 hover:text-black"
-        >
-          ☀️ HUNT CLEAR WATER BAITS →
-        </a>
-      </div>
-
-      {/* EARLY MORNING */}
-      <div className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500">
-        <div className="mb-4 text-5xl">🌅</div>
-
-        <h3 className="text-2xl font-black">
-          EARLY MORNING
-        </h3>
-
-        <p className="mt-4 text-gray-400">
-          Low light means darker colours shine.
-        </p>
-
-        <a
-          href="/baits?condition=morning"
-          className="mt-6 block rounded-xl border border-green-500 bg-black px-4 py-4 text-center font-black tracking-wide text-green-500 transition hover:bg-green-500 hover:text-black"
-        >
-          🌅 HUNT EARLY MORNING BAITS →
-        </a>
-      </div>
-
-           {/* OVERCAST */}
-      <div className="rounded-3xl border border-green-500/20 bg-black/60 p-8 backdrop-blur-sm transition hover:border-green-500">
-        <div className="mb-4 text-5xl">☁️</div>
-
-        <h3 className="text-2xl font-black">
-          OVERCAST
-        </h3>
-
-        <p className="mt-4 text-gray-400">
-          Extra visibility without being too aggressive.
-        </p>
-
-        <a
-          href="/baits?condition=overcast"
-          className="mt-6 block rounded-xl border border-green-500 bg-black px-4 py-4 text-center font-black tracking-wide text-green-500 transition hover:bg-green-500 hover:text-black"
-        >
-          ☁️ HUNT OVERCAST BAITS →
-        </a>
-      </div>
-
-    </div>
-
-  </div>
-</section>
+                <a
+                  href={link}
+                  className="mt-6 block rounded-xl border border-green-500 bg-black px-4 py-4 text-center font-black tracking-wide text-green-500 transition hover:bg-green-500 hover:text-black"
+                >
+                  {icon} {button} →
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       {/* GALLERY */}
       <section id="gallery" className="overflow-hidden bg-black px-6 py-24">
@@ -363,65 +305,66 @@ export default function Home() {
         </div>
 
         <div className="overflow-hidden">
-  <div className="flex w-max animate-gallery gap-6">
-    {[
-      "catch1.jpeg",
-      "catch2.jpeg",
-      "catch3.jpeg",
-      "catch4.jpeg",
-      "catch5.jpeg",
-      "catch6.jpeg",
-      "catch7.jpeg",
-      "catch8.jpeg",
-      "catch9.jpeg",
-      "catch10.jpeg",
-      "catch11.jpeg",
-      "catch12.jpeg",
-      "catch13.jpeg",
-      "catch14.jpeg",
-      "catch15.jpeg",
-      "catch16.jpeg",
-      "catch17.jpeg",
-      "catch18.jpeg",
-      "catch19.jpeg",
-      "catch1.jpeg",
-      "catch2.jpeg",
-      "catch3.jpeg",
-      "catch4.jpeg",
-      "catch5.jpeg",
-      "catch6.jpeg",
-      "catch7.jpeg",
-      "catch8.jpeg",
-      "catch9.jpeg",
-      "catch10.jpeg",
-      "catch11.jpeg",
-      "catch12.jpeg",
-      "catch13.jpeg",
-      "catch14.jpeg",
-      "catch15.jpeg",
-      "catch16.jpeg",
-      "catch17.jpeg",
-      "catch18.jpeg",
-      "catch19.jpeg",
-    ].map((image, index) => (
-      <img
-        key={index}
-        src={`/${image}`}
-        alt={`Catch ${index + 1}`}
-        className="h-[420px] w-[300px] flex-none rounded-3xl object-cover"
-      />
-    ))}
-  </div></div>
+          <div className="flex w-max animate-gallery gap-6">
+            {[
+              "catch1.jpeg",
+              "catch2.jpeg",
+              "catch3.jpeg",
+              "catch4.jpeg",
+              "catch5.jpeg",
+              "catch6.jpeg",
+              "catch7.jpeg",
+              "catch8.jpeg",
+              "catch9.jpeg",
+              "catch10.jpeg",
+              "catch11.jpeg",
+              "catch12.jpeg",
+              "catch13.jpeg",
+              "catch14.jpeg",
+              "catch15.jpeg",
+              "catch16.jpeg",
+              "catch17.jpeg",
+              "catch18.jpeg",
+              "catch19.jpeg",
+              "catch1.jpeg",
+              "catch2.jpeg",
+              "catch3.jpeg",
+              "catch4.jpeg",
+              "catch5.jpeg",
+              "catch6.jpeg",
+              "catch7.jpeg",
+              "catch8.jpeg",
+              "catch9.jpeg",
+              "catch10.jpeg",
+              "catch11.jpeg",
+              "catch12.jpeg",
+              "catch13.jpeg",
+              "catch14.jpeg",
+              "catch15.jpeg",
+              "catch16.jpeg",
+              "catch17.jpeg",
+              "catch18.jpeg",
+              "catch19.jpeg",
+            ].map((image, index) => (
+              <img
+                key={index}
+                src={`/${image}`}
+                alt={`Catch ${index + 1}`}
+                className="h-[420px] w-[300px] flex-none rounded-3xl object-cover"
+              />
+            ))}
+          </div>
+        </div>
       </section>
 
       {/* CONTACT */}
       <section id="contact" className="bg-black px-6 py-24 text-center">
         <h2 className="text-5xl font-black text-green-500">
-          READY TO HUNT?
+          NEED HELP?
         </h2>
 
         <p className="mx-auto mt-5 max-w-2xl text-xl text-gray-300">
-          Message us for orders, colour availability, or custom pours.
+          Message us for custom colours, bulk orders, stock questions, or help with your order.
         </p>
 
         <a
@@ -429,7 +372,7 @@ export default function Home() {
           target="_blank"
           className="mt-10 inline-block rounded-2xl bg-green-500 px-10 py-5 text-xl font-black text-black transition hover:bg-green-400"
         >
-          WHATSAPP US
+          💬 CHAT WITH US
         </a>
       </section>
 
