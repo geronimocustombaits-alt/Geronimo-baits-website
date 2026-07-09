@@ -23,26 +23,27 @@ export async function GET() {
     .map((row) =>
       row
         .split(",")
-        .map((cell) =>
-          cell.replace(/"/g, "").replace(/\\/g, "").trim()
-        )
+        .map((cell) => cell.replace(/"/g, "").replace(/\\/g, "").trim())
     )
     .filter(
       (row) =>
-        row.length >= 6 &&
+        row.length >= 7 &&
         row[0] &&
         row[0].includes("-") &&
         !row[0].includes("SKU")
     );
 
-  const products = rows.map((row) => ({
-    sku: row[0],
-    bait: row[1],
-    colour: row[2],
-    size: row[3],
-    price: row[4],
-    stockQty: row[5],
-  }));
+  const products = rows
+    .map((row) => ({
+      sku: row[0],
+      bait: row[1],
+      colour: row[2],
+      size: row[3],
+      price: row[4],
+      stockQty: row[5],
+      visible: row[6] || "TRUE",
+    }))
+    .filter((product) => String(product.visible).toUpperCase() !== "FALSE");
 
   return NextResponse.json(products);
 }
