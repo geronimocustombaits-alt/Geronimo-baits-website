@@ -21,8 +21,8 @@ type CartItem = Product & {
 export default function BaitsPage() {
   const searchParams = useSearchParams();
 
-  const orderNumberRef = useRef(`GB-${Date.now()}`);
-  const orderNumber = orderNumberRef.current;
+  const orderNumberRef = useRef("");
+  const [orderNumber, setOrderNumber] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('Warhawk 3.5"');
@@ -45,6 +45,25 @@ export default function BaitsPage() {
     }
 
     loadProducts();
+  }, []);
+
+  useEffect(() => {
+    async function getNextOrderNumber() {
+      try {
+        const response = await fetch("/api/next-order-number");
+        const data = await response.json();
+
+        orderNumberRef.current = data.orderNumber;
+        setOrderNumber(data.orderNumber);
+      } catch (error) {
+        console.error("Could not get next order number:", error);
+
+        orderNumberRef.current = "GB-01";
+        setOrderNumber("GB-01");
+      }
+    }
+
+    getNextOrderNumber();
   }, []);
 
   useEffect(() => {
@@ -96,6 +115,7 @@ export default function BaitsPage() {
   const grandTotal = cartTotal + shippingCost;
 
   const checkoutReady =
+    orderNumber.trim() !== "" &&
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
     customerEmail.trim() !== "" &&
@@ -212,12 +232,16 @@ Built to Hunt.`
       </a>
 
       <div className="mx-auto mb-10 max-w-4xl rounded-3xl border border-green-500/30 bg-black/90 p-8 text-center backdrop-blur-md">
+        <p className="mb-3 text-sm font-black tracking-[0.3em] text-green-500">
+          ORDER {orderNumber || "LOADING..."}
+        </p>
+
         <h1 className="text-5xl font-bold tracking-[0.25em]">
           BAIT <span className="text-green-500">RANGE</span>
         </h1>
 
         <p className="mx-auto mt-4 max-w-2xl text-gray-300">
-          Choose your bait category, add to cart, and checkout on WhatsApp.
+          Choose your bait category, add to cart, and checkout securely with PayFast.
         </p>
       </div>
 
@@ -559,65 +583,68 @@ Built to Hunt.`
                     </div>
 
                     {huntBoxMode && cartPackCount !== huntBoxSize ? (
-  <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
-    COMPLETE YOUR HUNT BOX
-  </div>
-) : checkoutReady ? (
-  <>
-    <button
-      onClick={async () => {
-        try {
-          await sendOrderEmail("PayFast");
+                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+                        COMPLETE YOUR HUNT BOX
+                      </div>
+                    ) : checkoutReady ? (
+                      <>
+                        <button
+                          onClick={async () => {
+                            try {
+                              await sendOrderEmail("PayFast");
 
-          const response = await fetch("/api/create-payfast-payment", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              orderNumber,
-              customerName,
-              customerEmail,
-              grandTotal,
-            }),
-          });
+                              const response = await fetch(
+                                "/api/create-payfast-payment",
+                                {
+                                  method: "POST",
+                                  headers: {
+                                    "Content-Type": "application/json",
+                                  },
+                                  body: JSON.stringify({
+                                    orderNumber,
+                                    customerName,
+                                    customerEmail,
+                                    grandTotal,
+                                  }),
+                                }
+                              );
 
-          const data = await response.json();
+                              const data = await response.json();
 
-          if (data.paymentUrl) {
-            window.location.href = data.paymentUrl;
-          }
-        } catch (error) {
-          console.error("PayFast failed:", error);
-        }
-      }}
-      className="mt-6 w-full rounded-2xl border-2 border-green-500 bg-gradient-to-r from-green-500 to-green-400 px-6 py-5 text-xl font-black tracking-wide text-black shadow-lg shadow-green-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/60"
-    >
-      💳 SECURE CHECKOUT
-      <div className="mt-1 text-sm font-semibold">
-        Pay securely with PayFast
-      </div>
-    </button>
+                              if (data.paymentUrl) {
+                                window.location.href = data.paymentUrl;
+                              }
+                            } catch (error) {
+                              console.error("PayFast failed:", error);
+                            }
+                          }}
+                          className="mt-6 w-full rounded-2xl border-2 border-green-500 bg-gradient-to-r from-green-500 to-green-400 px-6 py-5 text-xl font-black tracking-wide text-black shadow-lg shadow-green-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/60"
+                        >
+                          💳 SECURE CHECKOUT
+                          <div className="mt-1 text-sm font-semibold">
+                            Pay securely with PayFast
+                          </div>
+                        </button>
 
-    <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/60 p-5 text-center">
-      <p className="text-sm text-gray-300">
-        Need help with your order or looking for a custom colour?
-      </p>
+                        <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/60 p-5 text-center">
+                          <p className="text-sm text-gray-300">
+                            Need help with your order or looking for a custom colour?
+                          </p>
 
-      <a
-        href="https://wa.me/27675380595"
-        target="_blank"
-        className="mt-4 inline-block rounded-xl border border-green-500 px-6 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
-      >
-        💬 Chat with us on WhatsApp
-      </a>
-    </div>
-  </>
-) : (
-  <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
-    COMPLETE YOUR DETAILS
-  </div>
-)}
+                          <a
+                            href="https://wa.me/27675380595"
+                            target="_blank"
+                            className="mt-4 inline-block rounded-xl border border-green-500 px-6 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+                          >
+                            💬 Chat with us on WhatsApp
+                          </a>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="mt-4 rounded-xl bg-zinc-800 px-5 py-3 text-center font-bold text-zinc-400">
+                        COMPLETE YOUR DETAILS
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
