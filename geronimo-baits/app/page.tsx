@@ -132,14 +132,14 @@ export default function Home() {
             </h2>
           </div>
 
-          <div className="grid items-center gap-12 lg:grid-cols-2">
-            <div className="overflow-hidden rounded-3xl border border-green-500/20 bg-black/60">
-              <img
-                src="/about-us.jpeg"
-                alt="Geronimo Baits"
-                className="h-[420px] w-full object-cover transition duration-700 hover:scale-105"
-              />
-            </div>
+          <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
+           <div className="relative h-[280px] overflow-hidden rounded-3xl border border-green-500/30 bg-black/60 shadow-[0_0_35px_rgba(0,255,100,0.16)] md:h-[300px] lg:h-[320px]">
+  <img
+    src="/about-baits.png"
+    alt="Geronimo Baits"
+    className="h-full w-full object-contain transition duration-700 hover:scale-105"
+  />
+</div>
 
             <div>
               <h3 className="text-4xl font-black">
@@ -267,10 +267,34 @@ export default function Home() {
 
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
             {[
-              ["🌊", "MUDDY WATER", "Low visibility. Dark silhouettes dominate.", "/baits?condition=muddy", "HUNT MUDDY WATER BAITS"],
-              ["☀️", "CLEAR WATER", "Natural presentation and subtle action.", "/baits?condition=clear", "HUNT CLEAR WATER BAITS"],
-              ["🌅", "EARLY MORNING", "Low light means darker colours shine.", "/baits?condition=morning", "HUNT EARLY MORNING BAITS"],
-              ["☁️", "OVERCAST", "Extra visibility without being too aggressive.", "/baits?condition=overcast", "HUNT OVERCAST BAITS"],
+              [
+                "🌊",
+                "MUDDY WATER",
+                "Low visibility. Dark silhouettes dominate.",
+                "/baits?condition=muddy",
+                "HUNT MUDDY WATER BAITS",
+              ],
+              [
+                "☀️",
+                "CLEAR WATER",
+                "Natural presentation and subtle action.",
+                "/baits?condition=clear",
+                "HUNT CLEAR WATER BAITS",
+              ],
+              [
+                "🌅",
+                "EARLY MORNING",
+                "Low light means darker colours shine.",
+                "/baits?condition=morning",
+                "HUNT EARLY MORNING BAITS",
+              ],
+              [
+                "☁️",
+                "OVERCAST",
+                "Extra visibility without being too aggressive.",
+                "/baits?condition=overcast",
+                "HUNT OVERCAST BAITS",
+              ],
             ].map(([icon, title, text, link, button]) => (
               <div
                 key={title}
@@ -350,7 +374,7 @@ export default function Home() {
                 key={index}
                 src={`/${image}`}
                 alt={`Catch ${index + 1}`}
-                className="h-[420px] w-[300px] flex-none rounded-3xl object-cover"
+                className="h-[420px] w-[300px] flex-none rounded-3xl object-contain"
               />
             ))}
           </div>
