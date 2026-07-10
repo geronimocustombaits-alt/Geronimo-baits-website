@@ -1,4 +1,5 @@
 import CursorGlow from "./components/CursorGlow";
+import WeeklyBaitBanner from "./components/WeeklyBaitBanner";
 
 export default function Home() {
   return (
@@ -13,10 +14,18 @@ export default function Home() {
           </h1>
 
           <div className="hidden gap-10 text-sm font-bold tracking-[0.2em] md:flex">
-            <a href="#home" className="hover:text-green-500">HOME</a>
-            <a href="#why" className="hover:text-green-500">WHY US</a>
-            <a href="#gallery" className="hover:text-green-500">GALLERY</a>
-            <a href="#contact" className="hover:text-green-500">CONTACT</a>
+            <a href="#home" className="hover:text-green-500">
+              HOME
+            </a>
+            <a href="#why" className="hover:text-green-500">
+              WHY US
+            </a>
+            <a href="#gallery" className="hover:text-green-500">
+              GALLERY
+            </a>
+            <a href="#contact" className="hover:text-green-500">
+              CONTACT
+            </a>
           </div>
 
           <a
@@ -38,7 +47,9 @@ export default function Home() {
 
         <div className="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-green-500/20 blur-[120px]"></div>
 
-        <div className="relative z-20 flex flex-col items-center">
+        <div className="relative z-20 flex w-full flex-col items-center pt-150
+
+        ">
           <p className="text-2xl tracking-[0.4em] text-green-500">
             BUILT TO HUNT
           </p>
@@ -48,7 +59,8 @@ export default function Home() {
           </h1>
 
           <p className="mt-8 max-w-3xl text-xl text-gray-300">
-            Handmade soft plastics built in South Africa and tested where it counts.
+            Handmade soft plastics built in South Africa and tested where it
+            counts.
           </p>
 
           <div className="mt-12 flex flex-wrap justify-center gap-6">
@@ -81,6 +93,9 @@ export default function Home() {
               ♻️ REMELT ZONE
             </a>
           </div>
+
+          {/* WEEKLY BAIT DROP */}
+          <WeeklyBaitBanner />
         </div>
       </section>
 
@@ -103,7 +118,17 @@ export default function Home() {
       </section>
 
       {/* BUILT TO HUNT */}
-      <section id="about" className="relative overflow-hidden px-6 py-24">
+      <section
+        id="about"
+        className="relative overflow-hidden bg-cover bg-no-repeat px-6 py-24"
+        style={{
+          backgroundImage: "url('/section-bg.png.png')",
+          backgroundPosition: "center 70%",
+        }}
+      >
+        <div className="absolute inset-0 bg-black/80"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-black via-black/60 to-black"></div>
+
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div
             className="absolute left-[5%] top-[10%] h-[500px] w-[500px] rounded-full bg-green-500/10 blur-[150px]"
@@ -133,13 +158,13 @@ export default function Home() {
           </div>
 
           <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
-           <div className="relative h-[280px] overflow-hidden rounded-3xl border border-green-500/30 bg-black/60 shadow-[0_0_35px_rgba(0,255,100,0.16)] md:h-[300px] lg:h-[320px]">
-  <img
-    src="/about-baits.png"
-    alt="Geronimo Baits"
-    className="h-full w-full object-contain transition duration-700 hover:scale-105"
-  />
-</div>
+            <div className="relative h-[280px] overflow-hidden rounded-3xl border border-green-500/30 bg-black/60 shadow-[0_0_35px_rgba(0,255,100,0.16)] md:h-[300px] lg:h-[320px]">
+              <img
+                src="/about-baits.png"
+                alt="Geronimo Baits"
+                className="h-full w-full object-contain transition duration-700 hover:scale-105"
+              />
+            </div>
 
             <div>
               <h3 className="text-4xl font-black">
@@ -261,7 +286,8 @@ export default function Home() {
             </h2>
 
             <p className="mx-auto mt-6 max-w-3xl text-lg text-gray-300">
-              Not sure what to throw? Start with the right conditions and hunt the range.
+              Not sure what to throw? Start with the right conditions and hunt
+              the range.
             </p>
           </div>
 
@@ -370,12 +396,16 @@ export default function Home() {
               "catch18.jpeg",
               "catch19.jpeg",
             ].map((image, index) => (
-              <img
+              <div
                 key={index}
-                src={`/${image}`}
-                alt={`Catch ${index + 1}`}
-                className="h-[420px] w-[300px] flex-none rounded-3xl object-contain"
-              />
+                className="h-[360px] w-[260px] flex-none overflow-hidden rounded-3xl border border-green-500/20 bg-black shadow-[0_0_25px_rgba(0,255,100,0.08)]"
+              >
+                <img
+                  src={`/${image}`}
+                  alt={`Catch ${index + 1}`}
+                  className="h-full w-full object-cover object-center transition duration-500 hover:scale-105"
+                />
+              </div>
             ))}
           </div>
         </div>
@@ -383,12 +413,11 @@ export default function Home() {
 
       {/* CONTACT */}
       <section id="contact" className="bg-black px-6 py-24 text-center">
-        <h2 className="text-5xl font-black text-green-500">
-          NEED HELP?
-        </h2>
+        <h2 className="text-5xl font-black text-green-500">NEED HELP?</h2>
 
         <p className="mx-auto mt-5 max-w-2xl text-xl text-gray-300">
-          Message us for custom colours, bulk orders, stock questions, or help with your order.
+          Message us for custom colours, bulk orders, stock questions, or help
+          with your order.
         </p>
 
         <a
@@ -408,9 +437,10 @@ export default function Home() {
               GERONIMO <span className="text-green-500">BAITS</span>
             </h3>
 
-            <p className="mt-3 text-gray-400">
-              Handmade in South Africa 🇿🇦
-            </p>
+            <div className="mt-3 flex items-center gap-3 text-gray-400">
+              <span className="text-2xl">🇿🇦</span>
+              <span>Handmade in South Africa</span>
+            </div>
           </div>
 
           <div className="text-center">

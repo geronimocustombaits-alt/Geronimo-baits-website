@@ -1,4 +1,4 @@
- import { NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
   try {
@@ -7,6 +7,9 @@ export async function POST(req: Request) {
 
     const merchantId = process.env.PAYFAST_MERCHANT_ID;
     const merchantKey = process.env.PAYFAST_MERCHANT_KEY;
+
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 
     if (!merchantId || !merchantKey) {
       return NextResponse.json(
@@ -24,6 +27,7 @@ export async function POST(req: Request) {
 
     console.log("PAYFAST ORDER NUMBER:", orderNumber);
     console.log("PAYFAST TOTAL:", grandTotal);
+    console.log("PAYFAST NOTIFY URL:", `${baseUrl}/api/payfast-itn`);
 
     const payfastUrl =
       process.env.PAYFAST_SANDBOX === "true"
@@ -34,9 +38,9 @@ export async function POST(req: Request) {
       merchant_id: merchantId,
       merchant_key: merchantKey,
 
-      return_url: "http://localhost:3000/payment-success",
-      cancel_url: "http://localhost:3000/payment-cancelled",
-      notify_url: "http://localhost:3000/api/payfast-itn",
+      return_url: `${baseUrl}/payment-success`,
+      cancel_url: `${baseUrl}/payment-cancelled`,
+      notify_url: `${baseUrl}/api/payfast-itn`,
 
       name_first: customerName,
       email_address: customerEmail,

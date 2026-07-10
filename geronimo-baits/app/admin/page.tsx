@@ -1,3 +1,5 @@
+import WeeklyBaitBanner from "./components/WeeklyBaitBanner";
+
 "use client";
 
 import { useEffect, useState } from "react";
