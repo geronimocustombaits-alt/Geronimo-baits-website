@@ -25,7 +25,7 @@ export default function BaitsPage() {
   const [orderNumber, setOrderNumber] = useState("");
 
   const [products, setProducts] = useState<Product[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState('Warhawk 3.5"');
+  const [selectedCategory, setSelectedCategory] = useState('Apache Stick 5"');
   const [cart, setCart] = useState<CartItem[]>([]);
 
   const [huntBoxMode, setHuntBoxMode] = useState(false);
@@ -71,18 +71,15 @@ export default function BaitsPage() {
 
     if (condition === "muddy") setSelectedCategory('Warcraws 3.5"');
     if (condition === "clear") setSelectedCategory('Apache Stick 5"');
-    if (condition === "morning") setSelectedCategory('Warhawk 3.5"');
-    if (condition === "overcast") setSelectedCategory('Warfrogs 4"');
+    if (condition === "morning") setSelectedCategory("Warviper");
+    if (condition === "overcast") setSelectedCategory("Warbomb");
   }, [searchParams]);
 
   const categories = [
-    'Warhawk 3.5"',
     'Apache Stick 5"',
-    'Apache Stick 4"',
-    'Phantoms 3.5"',
-    'Warfrogs 4"',
     'Warcraws 3.5"',
-    'Wargrubs 3"',
+    "Warviper",
+    "Warbomb",
   ];
 
   const huntBoxes = [
@@ -189,34 +186,6 @@ export default function BaitsPage() {
     });
   };
 
-  const checkoutMessage = encodeURIComponent(
-    `🎣 GERONIMO BAITS ORDER
-
-Order Number: ${orderNumber}
-
-Name: ${customerName}
-Phone: ${customerPhone}
-Email: ${customerEmail}
-
-Delivery: ${deliveryMethod}
-
-ORDER:
-${cart
-  .map(
-    (item) =>
-      `• ${item.qty}x ${item.bait} - ${item.colour} | SKU: ${item.sku} | R${item.price}`
-  )
-  .join("\n")}
-
-${huntBoxMode ? `Hunt Box: ${huntBoxName}` : ""}
-Total Packs: ${cartPackCount}
-Products Total: R${cartTotal}
-Shipping: R${shippingCost}
-Grand Total: R${grandTotal}
-
-Built to Hunt.`
-  );
-
   const condition = searchParams.get("condition");
 
   return (
@@ -237,11 +206,11 @@ Built to Hunt.`
         </p>
 
         <h1 className="text-5xl font-bold tracking-[0.25em]">
-          BAIT <span className="text-green-500">RANGE</span>
+          CORE <span className="text-green-500">HUNT RANGE</span>
         </h1>
 
         <p className="mx-auto mt-4 max-w-2xl text-gray-300">
-          Choose your bait category, add to cart, and checkout securely with PayFast.
+          Four proven bait styles. Limited colours. Hand-poured and built to hunt.
         </p>
       </div>
 
@@ -252,9 +221,9 @@ Built to Hunt.`
           </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
-            <li>• Black Magic</li>
             <li>• Junebug</li>
-            <li>• Black & Blue</li>
+            <li>• Black and Blue</li>
+            <li>• Watermelon Red</li>
           </ul>
         </div>
       )}
@@ -266,8 +235,9 @@ Built to Hunt.`
           </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
-            <li>• Cotton Crush</li>
-            <li>• White Pearl</li>
+            <li>• Green Pumpkin</li>
+            <li>• Watermelon Red</li>
+            <li>• SA Special</li>
           </ul>
         </div>
       )}
@@ -279,8 +249,9 @@ Built to Hunt.`
           </h3>
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
-            <li>• Motoroil</li>
             <li>• Junebug</li>
+            <li>• Watermelon Red</li>
+            <li>• Green Pumpkin</li>
           </ul>
         </div>
       )}
@@ -293,7 +264,8 @@ Built to Hunt.`
           <p className="mt-4 text-gray-300">Recommended Colours:</p>
           <ul className="mt-3 space-y-2 text-white">
             <li>• Watermelon Red</li>
-            <li>• Motoroil</li>
+            <li>• Junebug</li>
+            <li>• SA Special</li>
           </ul>
         </div>
       )}
@@ -304,7 +276,7 @@ Built to Hunt.`
         </h2>
 
         <p className="mt-2 text-gray-300">
-          Choose your Geronimo box, fill it with baits, then checkout.
+          Choose your Geronimo box, fill it with your core range baits, then checkout.
         </p>
 
         <div className="mt-6 grid gap-6 md:grid-cols-3">
@@ -632,7 +604,7 @@ Built to Hunt.`
                           </p>
 
                           <a
-                            href="https://wa.me/27675380595"
+                            href={`https://wa.me/${whatsappNumber}`}
                             target="_blank"
                             className="mt-4 inline-block rounded-xl border border-green-500 px-6 py-3 font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
                           >
