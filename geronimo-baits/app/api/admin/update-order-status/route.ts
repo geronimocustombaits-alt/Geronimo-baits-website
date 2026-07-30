@@ -40,7 +40,6 @@ export async function POST(req: Request) {
       success: true,
       orderNumber,
       orderStatus,
-      sheetResult,
     });
   } catch (error) {
     console.error("UPDATE ORDER STATUS ERROR:", error);
