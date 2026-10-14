@@ -15,8 +15,9 @@ export type Product = {
   visible: string;
 };
 
+// The CSV parser already handles quoting, so inch marks like 5" are kept.
 const clean = (value: string | undefined) =>
-  String(value ?? "").replace(/"/g, "").replace(/\\/g, "").trim();
+  String(value ?? "").replace(/\\"/g, '"').replace(/\\/g, "").trim();
 
 // Only visible products with a real SKU (contains "-", not the header row).
 export async function fetchProducts(): Promise<Product[]> {

@@ -2,7 +2,7 @@ export default function RemeltZonePage() {
   return (
     <main
       className="min-h-screen overflow-hidden bg-black bg-cover bg-center text-white"
-      style={{ backgroundImage: "url('/Background rev 2.png')" }}
+      style={{ backgroundImage: "url('/bg-main.webp')" }}
     >
       <div className="min-h-screen bg-black/75 px-6 py-24">
         <a

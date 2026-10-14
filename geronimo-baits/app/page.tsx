@@ -1,7 +1,25 @@
 import CursorGlow from "./components/CursorGlow";
 import WeeklyBaitBanner from "./components/WeeklyBaitBanner";
+import fs from "fs";
+import path from "path";
+
+// Every photo in public/catches is shown in the Hunt Gallery automatically.
+// To add catches, drop .jpg / .jpeg / .png / .webp files into that folder.
+function getCatchPhotos(): string[] {
+  try {
+    return fs
+      .readdirSync(path.join(process.cwd(), "public", "catches"))
+      .filter((file) => /\.(jpe?g|png|webp)$/i.test(file))
+      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      .map((file) => `/catches/${encodeURIComponent(file)}`);
+  } catch {
+    return [];
+  }
+}
 
 export default function Home() {
+  const catchPhotos = getCatchPhotos();
+
   return (
     <main className="min-h-screen overflow-hidden bg-black text-white">
       <CursorGlow />
@@ -41,7 +59,7 @@ export default function Home() {
       <section
         id="home"
         className="relative flex min-h-screen items-center justify-center overflow-hidden bg-cover bg-center px-6 text-center"
-        style={{ backgroundImage: "url('/Background rev 2.png')" }}
+        style={{ backgroundImage: "url('/bg-main.webp')" }}
       >
         <div className="absolute inset-0 bg-black/70"></div>
 
@@ -122,7 +140,7 @@ export default function Home() {
         id="about"
         className="relative overflow-hidden bg-cover bg-no-repeat px-6 py-24"
         style={{
-          backgroundImage: "url('/section-bg.png.png')",
+          backgroundImage: "url('/section-bg.webp')",
           backgroundPosition: "center 70%",
         }}
       >
@@ -160,7 +178,7 @@ export default function Home() {
           <div className="grid items-center gap-12 lg:grid-cols-[1.1fr_1fr]">
             <div className="relative h-[280px] overflow-hidden rounded-3xl border border-green-500/30 bg-black/60 shadow-[0_0_35px_rgba(0,255,100,0.16)] md:h-[300px] lg:h-[320px]">
               <img
-                src="/about-baits.png"
+                src="/about-baits.webp"
                 alt="Geronimo Baits"
                 className="h-full w-full object-contain transition duration-700 hover:scale-105"
               />
@@ -355,54 +373,21 @@ export default function Home() {
         </div>
 
         <div className="overflow-hidden">
-          <div className="flex w-max animate-gallery gap-6">
-            {[
-              "catch1.jpeg",
-              "catch2.jpeg",
-              "catch3.jpeg",
-              "catch4.jpeg",
-              "catch5.jpeg",
-              "catch6.jpeg",
-              "catch7.jpeg",
-              "catch8.jpeg",
-              "catch9.jpeg",
-              "catch10.jpeg",
-              "catch11.jpeg",
-              "catch12.jpeg",
-              "catch13.jpeg",
-              "catch14.jpeg",
-              "catch15.jpeg",
-              "catch16.jpeg",
-              "catch17.jpeg",
-              "catch18.jpeg",
-              "catch19.jpeg",
-              "catch1.jpeg",
-              "catch2.jpeg",
-              "catch3.jpeg",
-              "catch4.jpeg",
-              "catch5.jpeg",
-              "catch6.jpeg",
-              "catch7.jpeg",
-              "catch8.jpeg",
-              "catch9.jpeg",
-              "catch10.jpeg",
-              "catch11.jpeg",
-              "catch12.jpeg",
-              "catch13.jpeg",
-              "catch14.jpeg",
-              "catch15.jpeg",
-              "catch16.jpeg",
-              "catch17.jpeg",
-              "catch18.jpeg",
-              "catch19.jpeg",
-            ].map((image, index) => (
+          <div
+            className="flex w-max animate-gallery gap-6"
+            // Same scrolling speed however many photos there are (~4s each).
+            style={{ animationDuration: `${Math.max(catchPhotos.length, 5) * 4}s` }}
+          >
+            {[...catchPhotos, ...catchPhotos].map((image, index) => (
               <div
                 key={index}
                 className="h-[360px] w-[260px] flex-none overflow-hidden rounded-3xl border border-green-500/20 bg-black shadow-[0_0_25px_rgba(0,255,100,0.08)]"
               >
                 <img
-                  src={`/${image}`}
-                  alt={`Catch ${index + 1}`}
+                  src={image}
+                  alt="Fish caught on a Geronimo bait"
+                  loading="lazy"
+                  decoding="async"
                   className="h-full w-full object-cover object-center transition duration-500 hover:scale-105"
                 />
               </div>

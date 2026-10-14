@@ -4,7 +4,14 @@ import { orderConfirmationEmail } from "@/lib/emailTemplates/orderConfirmationEm
 import { fetchProducts, type Product } from "@/lib/products";
 import { generateOrderNumber } from "@/lib/orderNumber";
 import { createPaymentUrl } from "@/lib/payfast";
-import { HUNT_BOXES, SHIPPING_OPTIONS, shippingCostFor } from "@/lib/shop";
+import {
+  DOOR_METHOD,
+  HUNT_BOXES,
+  LOCKER_METHOD,
+  DELIVERY_METHODS,
+  shippingCostFor,
+  roundRand,
+} from "@/lib/shop";
 
 // Places an order. The browser only sends WHICH baits and HOW MANY plus the
 // customer's details. Prices, shipping, totals and the order number are all
@@ -49,9 +56,43 @@ export async function POST(req: Request) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail)) {
     return fail("Please check your email address.");
   }
-  if (!(deliveryMethod in SHIPPING_OPTIONS)) {
+  if (!DELIVERY_METHODS.includes(deliveryMethod)) {
     return fail("Please choose a delivery method.");
   }
+
+  // Where it's going: a PUDO locker or a street address
+  let lockerCode = "";
+  let lockerName = "";
+  let lockerAddress = "";
+  let deliveryAddress = "";
+
+  if (deliveryMethod === LOCKER_METHOD) {
+    const locker = (body.locker ?? {}) as Record<string, unknown>;
+    lockerCode = text(locker.code, 20);
+    lockerName = text(locker.name, 120);
+    lockerAddress = text(locker.address, 200);
+    if (!lockerName) return fail("Please choose your PUDO locker.");
+  }
+
+  if (deliveryMethod === DOOR_METHOD) {
+    const addr = (body.address ?? {}) as Record<string, unknown>;
+    const street = text(addr.street, 120);
+    const suburb = text(addr.suburb, 80);
+    const city = text(addr.city, 80);
+    const postalCode = text(addr.postalCode, 4);
+    if (!street || !city || !/^\d{4}$/.test(postalCode)) {
+      return fail("Please fill in your street address, city and 4-digit postal code.");
+    }
+    deliveryAddress = [street, suburb, city, postalCode].filter(Boolean).join(", ");
+  }
+
+  // One readable line for the Orders sheet's DELIVERY column and the emails.
+  const deliveryDetails =
+    deliveryMethod === LOCKER_METHOD
+      ? `${LOCKER_METHOD}: ${lockerCode ? `${lockerCode} - ` : ""}${lockerName}${lockerAddress ? ` (${lockerAddress})` : ""}`
+      : deliveryMethod === DOOR_METHOD
+        ? `${DOOR_METHOD}: ${deliveryAddress}`
+        : deliveryMethod;
 
   // Requested items: [{ sku, qty }]
   if (!Array.isArray(body.items) || body.items.length === 0 || body.items.length > 50) {
@@ -110,9 +151,9 @@ export async function POST(req: Request) {
   }
 
   // Totals
-  const cartTotal = lines.reduce((sum, line) => sum + Number(line.price) * line.qty, 0);
-  const shippingCost = shippingCostFor(deliveryMethod);
-  const grandTotal = cartTotal + shippingCost;
+  const cartTotal = roundRand(lines.reduce((sum, line) => sum + Number(line.price) * line.qty, 0));
+  const shippingCost = shippingCostFor(deliveryMethod, packCount);
+  const grandTotal = roundRand(cartTotal + shippingCost);
   const orderNumber = generateOrderNumber();
 
   const order = {
@@ -120,7 +161,12 @@ export async function POST(req: Request) {
     customerName,
     customerPhone,
     customerEmail,
-    deliveryMethod,
+    // The DELIVERY column shows the full locker or address details.
+    deliveryMethod: deliveryDetails,
+    deliveryType: deliveryMethod,
+    lockerCode,
+    lockerName,
+    deliveryAddress: deliveryAddress || lockerAddress,
     huntBox: huntBoxName || "",
     cartTotal,
     shippingCost,
@@ -178,7 +224,7 @@ export async function POST(req: Request) {
       <p><strong>Name:</strong> ${escapeHtml(customerName)}</p>
       <p><strong>Phone:</strong> ${escapeHtml(customerPhone)}</p>
       <p><strong>Email:</strong> ${escapeHtml(customerEmail)}</p>
-      <p><strong>Delivery:</strong> ${escapeHtml(deliveryMethod)}</p>
+      <p><strong>Delivery:</strong> ${escapeHtml(deliveryDetails)}</p>
       ${huntBoxName ? `<p><strong>Hunt Box:</strong> ${escapeHtml(huntBoxName)}</p>` : ""}
       <h3>Order Items</h3>
       <p>${orderLines}</p>
@@ -208,10 +254,14 @@ export async function POST(req: Request) {
         colour: escapeHtml(line.colour),
         quantity: line.qty,
         price: line.price,
-        total: Number(line.price) * line.qty,
+        total: roundRand(Number(line.price) * line.qty),
       })),
       shippingMethod: escapeHtml(deliveryMethod),
-      shippingAddress: "Address not supplied",
+      shippingAddress: escapeHtml(
+        deliveryMethod === LOCKER_METHOD
+          ? `${lockerCode ? `${lockerCode} - ` : ""}${lockerName}${lockerAddress ? `, ${lockerAddress}` : ""}`
+          : deliveryAddress || "Collection"
+      ),
       subtotal: cartTotal,
       shipping: shippingCost,
       total: grandTotal,

@@ -11,7 +11,7 @@ export default function PaymentCancelled() {
         </h1>
 
         <p className="mt-6 text-xl text-gray-300">
-          No payment was processed. You can return to the bait page and try again.
+          No payment was processed. Don&apos;t worry — your cart is still saved, so you can go back and try again.
         </p>
 
         <a
