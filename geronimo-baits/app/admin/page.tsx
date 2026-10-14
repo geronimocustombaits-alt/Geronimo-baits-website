@@ -230,12 +230,20 @@ export default function AdminPage() {
             <p className="mt-3 text-gray-400">Manage orders, payments and packing progress.</p>
           </div>
 
-          <button
-            onClick={logout}
-            className="self-start rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"
-          >
-            LOG OUT
-          </button>
+          <div className="flex gap-3 self-start">
+            <a
+              href="/admin/scan"
+              className="rounded-xl bg-green-500 px-5 py-2 text-sm font-black text-black transition hover:bg-green-400"
+            >
+              📷 SCANNER
+            </a>
+            <button
+              onClick={logout}
+              className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"
+            >
+              LOG OUT
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
