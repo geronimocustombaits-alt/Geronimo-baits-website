@@ -1,7 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { HUNT_BOXES, SHIPPING_OPTIONS, shippingCostFor } from "@/lib/shop";
 
 const whatsappNumber = "27675380595";
 
@@ -36,9 +37,6 @@ export default function BaitsPage() {
 function BaitsContent() {
   const searchParams = useSearchParams();
 
-  const orderNumberRef = useRef("");
-  const [orderNumber, setOrderNumber] = useState("");
-
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedCategory, setSelectedCategory] = useState('Apache Stick 5"');
   const [cart, setCart] = useState<CartItem[]>([]);
@@ -52,6 +50,9 @@ function BaitsContent() {
   const [customerEmail, setCustomerEmail] = useState("");
   const [deliveryMethod, setDeliveryMethod] = useState("PUDO Locker");
 
+  const [placingOrder, setPlacingOrder] = useState(false);
+  const [checkoutError, setCheckoutError] = useState("");
+
   useEffect(() => {
     async function loadProducts() {
       const response = await fetch("/api/products");
@@ -62,24 +63,6 @@ function BaitsContent() {
     loadProducts();
   }, []);
 
-  useEffect(() => {
-    async function getNextOrderNumber() {
-      try {
-        const response = await fetch("/api/next-order-number");
-        const data = await response.json();
-
-        orderNumberRef.current = data.orderNumber;
-        setOrderNumber(data.orderNumber);
-      } catch (error) {
-        console.error("Could not get next order number:", error);
-
-        orderNumberRef.current = "GB-01";
-        setOrderNumber("GB-01");
-      }
-    }
-
-    getNextOrderNumber();
-  }, []);
 
   useEffect(() => {
     const condition = searchParams.get("condition");
@@ -97,11 +80,7 @@ function BaitsContent() {
     "Warbomb",
   ];
 
-  const huntBoxes = [
-    { name: "SCOUT BOX", size: 3, description: "Perfect starter selection." },
-    { name: "HUNTER BOX", size: 5, description: "Built for a serious session." },
-    { name: "WAR BOX", size: 8, description: "Full attack mode." },
-  ];
+  const huntBoxes = HUNT_BOXES;
 
   const cleanText = (text: string) =>
     text.replace(/\\"/g, '"').replace(/"/g, "").trim().toLowerCase();
@@ -117,17 +96,11 @@ function BaitsContent() {
     0
   );
 
-  const shippingCost =
-    deliveryMethod === "PUDO Locker"
-      ? 60
-      : deliveryMethod === "PUDO Door-to-Door"
-      ? 110
-      : 0;
+  const shippingCost = shippingCostFor(deliveryMethod);
 
   const grandTotal = cartTotal + shippingCost;
 
   const checkoutReady =
-    orderNumber.trim() !== "" &&
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
     customerEmail.trim() !== "" &&
@@ -176,29 +149,40 @@ function BaitsContent() {
     setCart((currentCart) => currentCart.filter((item) => item.sku !== sku));
   };
 
-  const sendOrderEmail = async (
-    paymentMethod: "Website" | "WhatsApp" | "PayFast" = "Website"
-  ) => {
-    await fetch("/api/send-order", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        orderNumber,
-        customerName,
-        customerPhone,
-        customerEmail,
-        deliveryMethod,
-        cartTotal,
-        shippingCost,
-        grandTotal,
-        paymentMethod,
-        paymentStatus: "Pending",
-        orderStatus: "Processing",
-        items: cart,
-      }),
-    });
+  // The server works out prices, shipping, the total and the order number,
+  // saves the order and returns the PayFast link.
+  const placeOrder = async () => {
+    setCheckoutError("");
+    setPlacingOrder(true);
+
+    try {
+      const response = await fetch("/api/send-order", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          customerName,
+          customerPhone,
+          customerEmail,
+          deliveryMethod,
+          huntBoxName: huntBoxMode ? huntBoxName : "",
+          items: cart.map((item) => ({ sku: item.sku, qty: item.qty })),
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success && data.paymentUrl) {
+        window.location.href = data.paymentUrl;
+        return;
+      }
+
+      setCheckoutError(data.error || "Something went wrong. Please try again.");
+    } catch (error) {
+      console.error("Checkout failed:", error);
+      setCheckoutError("We couldn't reach the server. Check your connection and try again.");
+    }
+
+    setPlacingOrder(false);
   };
 
   const condition = searchParams.get("condition");
@@ -217,7 +201,7 @@ function BaitsContent() {
 
       <div className="mx-auto mb-10 max-w-4xl rounded-3xl border border-green-500/30 bg-black/90 p-8 text-center backdrop-blur-md">
         <p className="mb-3 text-sm font-black tracking-[0.3em] text-green-500">
-          ORDER {orderNumber || "LOADING..."}
+          HAND-POURED IN SA
         </p>
 
         <h1 className="text-5xl font-bold tracking-[0.25em]">
@@ -541,9 +525,11 @@ function BaitsContent() {
                       onChange={(e) => setDeliveryMethod(e.target.value)}
                       className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
                     >
-                      <option>PUDO Locker</option>
-                      <option>PUDO Door-to-Door</option>
-                      <option>Collection</option>
+                      {Object.entries(SHIPPING_OPTIONS).map(([method, cost]) => (
+                        <option key={method} value={method}>
+                          {method} {cost > 0 ? `(R${cost})` : "(Free)"}
+                        </option>
+                      ))}
                     </select>
                   </div>
 
@@ -575,39 +561,18 @@ function BaitsContent() {
                       </div>
                     ) : checkoutReady ? (
                       <>
+                        {checkoutError && (
+                          <p className="mt-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-400">
+                            {checkoutError}
+                          </p>
+                        )}
+
                         <button
-                          onClick={async () => {
-                            try {
-                              await sendOrderEmail("PayFast");
-
-                              const response = await fetch(
-                                "/api/create-payfast-payment",
-                                {
-                                  method: "POST",
-                                  headers: {
-                                    "Content-Type": "application/json",
-                                  },
-                                  body: JSON.stringify({
-                                    orderNumber,
-                                    customerName,
-                                    customerEmail,
-                                    grandTotal,
-                                  }),
-                                }
-                              );
-
-                              const data = await response.json();
-
-                              if (data.paymentUrl) {
-                                window.location.href = data.paymentUrl;
-                              }
-                            } catch (error) {
-                              console.error("PayFast failed:", error);
-                            }
-                          }}
-                          className="mt-6 w-full rounded-2xl border-2 border-green-500 bg-gradient-to-r from-green-500 to-green-400 px-6 py-5 text-xl font-black tracking-wide text-black shadow-lg shadow-green-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/60"
+                          onClick={placeOrder}
+                          disabled={placingOrder}
+                          className="mt-6 w-full rounded-2xl border-2 border-green-500 bg-gradient-to-r from-green-500 to-green-400 px-6 py-5 text-xl font-black tracking-wide text-black shadow-lg shadow-green-500/30 transition-all duration-300 hover:scale-[1.02] hover:shadow-green-500/60 disabled:cursor-wait disabled:opacity-70 disabled:hover:scale-100"
                         >
-                          💳 SECURE CHECKOUT
+                          {placingOrder ? "⏳ PLACING ORDER..." : "💳 SECURE CHECKOUT"}
                           <div className="mt-1 text-sm font-semibold">
                             Pay securely with PayFast
                           </div>
