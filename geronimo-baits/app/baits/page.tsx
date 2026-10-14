@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 const whatsappNumber = "27675380595";
@@ -18,7 +18,22 @@ type CartItem = Product & {
   qty: number;
 };
 
+// useSearchParams() must sit inside a Suspense boundary or the build fails.
 export default function BaitsPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-black text-xl font-bold tracking-widest text-green-500">
+          LOADING THE HUNT RANGE...
+        </main>
+      }
+    >
+      <BaitsContent />
+    </Suspense>
+  );
+}
+
+function BaitsContent() {
   const searchParams = useSearchParams();
 
   const orderNumberRef = useRef("");

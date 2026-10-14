@@ -1,5 +1,3 @@
-import WeeklyBaitBanner from "./components/WeeklyBaitBanner";
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -16,6 +14,11 @@ export default function AdminPage() {
       const response = await fetch("/api/admin/orders", {
         cache: "no-store",
       });
+
+      if (response.status === 401) {
+        window.location.href = "/admin/login";
+        return;
+      }
 
       const data = response.ok ? await response.json() : [];
       setOrders(data);
@@ -46,6 +49,11 @@ export default function AdminPage() {
         }),
       });
 
+      if (response.status === 401) {
+        window.location.href = "/admin/login";
+        return;
+      }
+
       const data = await response.json();
 
       if (!data.success) {
@@ -60,6 +68,11 @@ export default function AdminPage() {
     } finally {
       setUpdatingOrder("");
     }
+  }
+
+  async function logout() {
+    await fetch("/api/admin/login", { method: "DELETE" });
+    window.location.href = "/admin/login";
   }
 
   const totalOrders = orders.length;
@@ -84,16 +97,25 @@ export default function AdminPage() {
   return (
     <main className="min-h-screen bg-black px-6 py-10 text-white">
       <section className="mx-auto max-w-7xl">
-        <div className="mb-10">
-          <p className="text-sm font-black tracking-[0.4em] text-green-500">
-            GERONIMO BAITS
-          </p>
+        <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-start">
+          <div>
+            <p className="text-sm font-black tracking-[0.4em] text-green-500">
+              GERONIMO BAITS
+            </p>
 
-          <h1 className="mt-3 text-5xl font-black">ADMIN DASHBOARD</h1>
+            <h1 className="mt-3 text-5xl font-black">ADMIN DASHBOARD</h1>
 
-          <p className="mt-3 text-gray-400">
-            Manage orders, payments and packing progress.
-          </p>
+            <p className="mt-3 text-gray-400">
+              Manage orders, payments and packing progress.
+            </p>
+          </div>
+
+          <button
+            onClick={logout}
+            className="self-start rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"
+          >
+            LOG OUT
+          </button>
         </div>
 
         <div className="grid gap-5 md:grid-cols-4">
