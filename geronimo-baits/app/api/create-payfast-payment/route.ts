@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { buildParamString, payfastHost, signParamString } from "@/lib/payfast";
 
 export async function POST(req: Request) {
   try {
@@ -29,30 +30,26 @@ export async function POST(req: Request) {
     console.log("PAYFAST TOTAL:", grandTotal);
     console.log("PAYFAST NOTIFY URL:", `${baseUrl}/api/payfast-itn`);
 
-    const payfastUrl =
-      process.env.PAYFAST_SANDBOX === "true"
-        ? "https://sandbox.payfast.co.za/eng/process"
-        : "https://www.payfast.co.za/eng/process";
+    // Field order matters for the signature: this is PayFast's documented order.
+    const fields: [string, string][] = [
+      ["merchant_id", merchantId],
+      ["merchant_key", merchantKey],
+      ["return_url", `${baseUrl}/payment-success`],
+      ["cancel_url", `${baseUrl}/payment-cancelled`],
+      ["notify_url", `${baseUrl}/api/payfast-itn`],
+      ["name_first", String(customerName)],
+      ["email_address", String(customerEmail)],
+      ["m_payment_id", String(orderNumber)],
+      ["amount", Number(grandTotal).toFixed(2)],
+      ["item_name", `Geronimo Baits Order ${orderNumber}`],
+    ];
 
-    const paymentData = new URLSearchParams({
-      merchant_id: merchantId,
-      merchant_key: merchantKey,
-
-      return_url: `${baseUrl}/payment-success`,
-      cancel_url: `${baseUrl}/payment-cancelled`,
-      notify_url: `${baseUrl}/api/payfast-itn`,
-
-      name_first: customerName,
-      email_address: customerEmail,
-
-      m_payment_id: orderNumber,
-      amount: Number(grandTotal).toFixed(2),
-      item_name: `Geronimo Baits Order ${orderNumber}`,
-    });
+    const paramString = buildParamString(fields, { skipEmpty: true });
+    const signature = signParamString(paramString);
 
     return NextResponse.json({
       success: true,
-      paymentUrl: `${payfastUrl}?${paymentData.toString()}`,
+      paymentUrl: `https://${payfastHost()}/eng/process?${paramString}&signature=${signature}`,
     });
   } catch (error) {
     console.error("PAYFAST ERROR:", error);

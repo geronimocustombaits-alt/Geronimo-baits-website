@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
+import { isAdminRequest } from "@/lib/adminAuth";
 
 export async function POST(req: Request) {
+  if (!(await isAdminRequest(req))) {
+    return NextResponse.json({ success: false, error: "Not logged in" }, { status: 401 });
+  }
+
   try {
     const { orderNumber, orderStatus } = await req.json();
 

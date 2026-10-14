@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { isAdminRequest } from "@/lib/adminAuth";
 
 const ORDERS_CSV_URL = process.env.ORDERS_CSV_URL;
 
@@ -33,7 +34,11 @@ function cleanHeader(header: string) {
     .toUpperCase();
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  if (!(await isAdminRequest(req))) {
+    return NextResponse.json({ success: false, error: "Not logged in" }, { status: 401 });
+  }
+
   try {
     if (!ORDERS_CSV_URL) {
       return NextResponse.json([]);

@@ -57,6 +57,18 @@ export async function createSessionToken(): Promise<string> {
   return `${expires}.${await sign(expires, secret)}`;
 }
 
+// Second line of defence for admin API routes, in case the proxy is ever
+// bypassed: reads the session cookie straight from the request.
+export async function isAdminRequest(req: Request): Promise<boolean> {
+  const cookieHeader = req.headers.get("cookie") || "";
+  const token = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${ADMIN_COOKIE}=`))
+    ?.slice(ADMIN_COOKIE.length + 1);
+  return verifySessionToken(token ? decodeURIComponent(token) : undefined);
+}
+
 export async function verifySessionToken(token: string | undefined): Promise<boolean> {
   const secret = getSecret();
   if (!secret || !token) return false;
