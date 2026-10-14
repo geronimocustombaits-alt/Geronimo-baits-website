@@ -8,6 +8,11 @@ const nextConfig: NextConfig = {
     root: __dirname,
   },
   outputFileTracingRoot: __dirname,
+
+  // Lets the dev server be opened through a temporary Cloudflare tunnel
+  // (https://….trycloudflare.com) or from a phone on the home Wi-Fi, for
+  // testing the phone scanner. Only affects `npm run dev`, not the live site.
+  allowedDevOrigins: ["*.trycloudflare.com", "192.168.*.*"],
 };
 
 export default nextConfig;

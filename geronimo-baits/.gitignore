@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# original full-size photos (the website uses the small copies in public/catches)
+/Geronimo Catches/
+
+# test certificates from "next dev --experimental-https"
+/certificates/
