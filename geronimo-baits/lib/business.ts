@@ -1,19 +1,18 @@
 // Business details shown on the Terms, Returns and Privacy pages.
-// South African online-shop law (ECT Act s43) asks for these to be on the site,
-// so fill in every "TODO" before the site goes public.
+// South African online-shop law (ECT Act s43) asks for these to be on the site.
 
 export const BUSINESS = {
   tradingName: "Geronimo Baits",
   // e.g. "Ulrich Wissing t/a Geronimo Baits (sole proprietor)" or
   // "Geronimo Baits (Pty) Ltd, reg. no. 2024/123456/07"
-  legalName: "TODO: legal name and legal status",
+  legalName: "Ulrich Wissing (owner)",
   // A street address where legal notices can be delivered.
-  physicalAddress: "TODO: physical address",
+  physicalAddress: "39 Mesquite Street, Bougainvillea Estate",
   email: "geronimocustombaits@gmail.com",
   phoneDisplay: "067 538 0595",
   whatsappNumber: "27675380595",
   // The person responsible for privacy requests under POPIA.
-  informationOfficer: "TODO: name of the Information Officer (usually the owner)",
+  informationOfficer: "Ulrich Wissing (owner)",
   // How long you usually take to pack and send an order.
   dispatchTime: "2 to 3 working days",
   policiesUpdated: "23 October 2026",
