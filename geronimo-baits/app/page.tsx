@@ -2,6 +2,7 @@ import CursorGlow from "./components/CursorGlow";
 import WeeklyBaitBanner from "./components/WeeklyBaitBanner";
 import fs from "fs";
 import path from "path";
+import { LegalLinks } from "./components/SiteFooter";
 
 // Every photo in public/catches is shown in the Hunt Gallery automatically.
 // To add catches, drop .jpg / .jpeg / .png / .webp files into that folder.
@@ -10,7 +11,8 @@ function getCatchPhotos(): string[] {
     return fs
       .readdirSync(path.join(process.cwd(), "public", "catches"))
       .filter((file) => /\.(jpe?g|png|webp)$/i.test(file))
-      .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+      // Newest first: catch-51 before catch-50 ... so new catches show straight away.
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }))
       .map((file) => `/catches/${encodeURIComponent(file)}`);
   } catch {
     return [];
@@ -386,7 +388,6 @@ export default function Home() {
                 <img
                   src={image}
                   alt="Fish caught on a Geronimo bait"
-                  loading="lazy"
                   decoding="async"
                   className="h-full w-full object-cover object-center transition duration-500 hover:scale-105"
                 />
@@ -458,6 +459,8 @@ export default function Home() {
             Built to Hunt.
           </div>
         </div>
+
+        <LegalLinks className="mt-8 border-t border-white/5 pt-6" />
       </footer>
     </main>
   );

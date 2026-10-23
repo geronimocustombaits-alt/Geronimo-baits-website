@@ -17,6 +17,8 @@ import {
   roundRand,
 } from "@/lib/shop";
 import PudoLockerPicker from "../components/PudoLockerPicker";
+import Link from "next/link";
+import { LegalFooter } from "../components/SiteFooter";
 
 const whatsappNumber = "27675380595";
 
@@ -792,6 +794,14 @@ function BaitsContent() {
                           </div>
                         </button>
 
+                        <p className="mt-3 text-center text-xs text-gray-400">
+                          By paying you agree to our{" "}
+                          <Link href="/terms" className="text-green-500 hover:underline">Terms</Link>,{" "}
+                          <Link href="/returns" className="text-green-500 hover:underline">Returns Policy</Link>{" "}
+                          and{" "}
+                          <Link href="/privacy" className="text-green-500 hover:underline">Privacy Policy</Link>.
+                        </p>
+
                         <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/60 p-5 text-center">
                           <p className="text-sm text-gray-300">
                             Need help with your order or looking for a custom colour?
@@ -819,6 +829,9 @@ function BaitsContent() {
           </aside>
         </div>
       </section>
+
+      <LegalFooter />
+
       {/* Mobile: quick link to the cart, which sits far down the page */}
       {cartPackCount > 0 && (
         <button
