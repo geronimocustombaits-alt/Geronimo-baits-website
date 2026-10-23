@@ -54,6 +54,24 @@ const cleanText = (text: string) =>
 
 const IMAGE_EXTENSIONS = ["jpeg", "jpg", "webp", "png"];
 
+// Sends the signed PayFast fields as a form POST (PayFast's documented method).
+// The server still builds and signs the link; this just posts its fields.
+function postToPayfast(paymentUrl: string) {
+  const url = new URL(paymentUrl);
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = `${url.origin}${url.pathname}`;
+  url.searchParams.forEach((value, key) => {
+    const input = document.createElement("input");
+    input.type = "hidden";
+    input.name = key;
+    input.value = value;
+    form.appendChild(input);
+  });
+  document.body.appendChild(form);
+  form.submit();
+}
+
 // useSearchParams() must sit inside a Suspense boundary or the build fails.
 export default function BaitsPage() {
   return (
@@ -322,7 +340,8 @@ function BaitsContent() {
         } catch {
           // Not essential.
         }
-        window.location.href = data.paymentUrl;
+        // PayFast expects the payment details as a form POST, not a link.
+        postToPayfast(data.paymentUrl);
         return;
       }
 
