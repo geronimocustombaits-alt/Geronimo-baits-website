@@ -7,7 +7,7 @@ export const BUSINESS = {
   // "Geronimo Baits (Pty) Ltd, reg. no. 2024/123456/07"
   legalName: "Ulrich Wissing (owner)",
   // A street address where legal notices can be delivered.
-  physicalAddress: "39 Mesquite Street, Bougainvillea Estate",
+  physicalAddress: "39 Mesquite Street, Bougainvillea Estate, Montana, Pretoria",
   email: "geronimocustombaits@gmail.com",
   phoneDisplay: "067 538 0595",
   whatsappNumber: "27675380595",
