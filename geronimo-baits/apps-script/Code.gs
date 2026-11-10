@@ -357,12 +357,17 @@ function syncZohoInvoices() {
 
         if (inv.status === "void") {
           reverseSale(ss, reference, "Zoho");
+          markZohoOrderVoid(ss, inv.invoice_number);
           return;
         }
-        if (inv.status === "draft") return; // counted once it's sent
 
         const detail = zohoGet(auth, `/invoices/${inv.invoice_id}?organization_id=${orgId}`);
-        const items = ((detail.invoice && detail.invoice.line_items) || [])
+        if (!detail.invoice) return;
+        upsertZohoOrder(ss, detail.invoice);
+
+        if (inv.status === "draft") return; // stock is counted once it's sent
+
+        const items = (detail.invoice.line_items || [])
           .map(li => ({ sku: String(li.sku || "").trim(), qty: num(li.quantity) }))
           .filter(i => i.sku && i.qty > 0);
         recordSale(ss, items, reference, "Zoho");
@@ -374,4 +379,98 @@ function syncZohoInvoices() {
   } finally {
     lock.releaseLock();
   }
+}
+
+// ───────────────────────────── Zoho invoices → Orders tab ─────────────────────────────
+// Every Zoho invoice gets one row in Orders (ORDER # = invoice number), so the back
+// office shows website and Zoho orders in one list. A row is updated, never duplicated.
+// ORDER STATUS is only set on a new row, so your Packed / Shipped progress is kept.
+
+function zohoPaymentStatus(invoice) {
+  const status = String(invoice.status || "").toLowerCase();
+  if (status === "paid") return "Paid";
+  if (status === "partially_paid") return "Paid - CHECK AMOUNT";
+  if (status === "draft") return "Draft";
+  return "Pending"; // sent, viewed, overdue
+}
+
+function upsertZohoOrder(ss, invoice) {
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const lines = invoice.line_items || [];
+  const products = lines.filter(li => String(li.sku || "").trim());
+  const extras = lines.filter(li => !String(li.sku || "").trim()); // delivery etc.
+
+  const items = products
+    .map(li => `${num(li.quantity)}x ${li.name} | ${String(li.sku).trim()}`)
+    .join("\n");
+  const productTotal = products.reduce((sum, li) => sum + num(li.item_total), 0);
+  const shipping = extras.reduce((sum, li) => sum + num(li.item_total), 0);
+
+  const ship = invoice.shipping_address || {};
+  const deliveryLine = extras.map(li => li.description || li.name).filter(Boolean).join("; ");
+  const delivery = ship.attention || deliveryLine || (shipping > 0 ? "Delivery" : "Collection");
+  const address = [ship.address, ship.street2, ship.city, ship.state, ship.zip]
+    .filter(Boolean).join(", ");
+  const person = (invoice.contact_persons_details || [])[0] || {};
+  const phone = person.mobile || person.phone || "";
+  const paid = num(invoice.total) - num(invoice.balance);
+
+  const values = [
+    invoice.invoice_number,
+    invoice.date,
+    invoice.customer_name,
+    phone,
+    invoice.email || person.email || "",
+    delivery,
+    items,
+    productTotal,
+    shipping,
+    num(invoice.total),
+    "Zoho",
+    zohoPaymentStatus(invoice),
+    "Processing",
+    "",
+    address,
+    paid > 0 ? paid : "",
+    "",
+  ];
+
+  const row = findRow(sheet, invoice.invoice_number);
+  if (row < 0) {
+    sheet.appendRow(values);
+    return;
+  }
+  // Existing row: refresh everything except ORDER STATUS (col M) and HUNT BOX (col Q).
+  sheet.getRange(row, 1, 1, COL.PAYMENT_STATUS).setValues([values.slice(0, COL.PAYMENT_STATUS)]);
+  sheet.getRange(row, COL.LOCKER_CODE, 1, 3).setValues([values.slice(COL.LOCKER_CODE - 1, COL.AMOUNT_PAID)]);
+}
+
+function markZohoOrderVoid(ss, invoiceNumber) {
+  const sheet = ss.getSheetByName(SHEET_NAME);
+  const row = findRow(sheet, invoiceNumber);
+  if (row < 0) return;
+  sheet.getRange(row, COL.PAYMENT_STATUS).setValue("Void");
+  sheet.getRange(row, COL.ORDER_STATUS).setValue("Cancelled");
+}
+
+// Run once by hand: copies Zoho invoices dated from FROM_DATE into the Orders tab.
+// Orders tab only. It does NOT touch stock, so nothing is counted twice.
+function importZohoOrders() {
+  const FROM_DATE = "2026-10-20"; // yyyy-mm-dd
+  const props = PropertiesService.getScriptProperties();
+  const orgId = props.getProperty("ZOHO_ORG_ID");
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const auth = zohoAuth();
+  let count = 0;
+
+  for (let page = 1; page <= 5; page++) {
+    const list = zohoGet(auth, `/invoices?organization_id=${orgId}&date_start=${FROM_DATE}&sort_column=date&sort_order=A&per_page=100&page=${page}`);
+    (list.invoices || []).forEach(inv => {
+      if (inv.status === "void") return;
+      const detail = zohoGet(auth, `/invoices/${inv.invoice_id}?organization_id=${orgId}`);
+      if (detail.invoice) { upsertZohoOrder(ss, detail.invoice); count++; }
+    });
+    if (!list.page_context || !list.page_context.has_more_page) break;
+  }
+  Logger.log(`Imported ${count} Zoho invoices into Orders.`);
 }
