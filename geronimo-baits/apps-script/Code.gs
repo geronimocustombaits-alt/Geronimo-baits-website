@@ -14,8 +14,8 @@
  *
  * Zoho invoices (every 15 min) and website orders only create / update the
  * Orders row. Stock comes off when the order is scanned and packed, so it
- * matches what physically left the shelf. Orders whose stock was already taken
- * off under the old rules (Zoho sync / website "Paid") are not deducted again.
+ * matches what physically left the shelf. (Inventory was reset to the 11 Nov
+ * 2026 stocktake when this started.)
  *
  * Settings (Project Settings → Script properties):
  *   WEBHOOK_SECRET      shared secret the website sends for scanner actions
@@ -517,13 +517,12 @@ function packOrder(ss, sheet, data) {
   });
   if (problems.length) return { success: false, error: "Scans don't match the order", problems };
 
-  // Already taken off? (packed before, or counted under the old Zoho / website rules)
+  // Already packed before? Then don't take it off twice.
+  // (Inventory was reset to the 11 Nov stocktake, so sales logged under the old
+  // Zoho / website rules no longer count — every order comes off when packed.)
   const log = logSheet(ss);
   const packRef = `PACK ${orderNumber}`;
-  const alreadyOff =
-    alreadyLogged(log, packRef, "SALE") ||
-    alreadyLogged(log, `ZOHO ${orderNumber}`, "SALE") ||
-    alreadyLogged(log, orderNumber, "SALE");
+  const alreadyOff = alreadyLogged(log, packRef, "SALE");
 
   if (!alreadyOff) {
     const items = Object.keys(needed).map(sku => ({ sku, qty: needed[sku] }));
