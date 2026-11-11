@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import PackPanel from "./PackPanel";
 
 type Order = {
   orderNumber: string;
@@ -126,6 +127,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
+  const [packing, setPacking] = useState<Order | null>(null);
 
   async function loadOrders() {
     try {
@@ -222,6 +224,19 @@ export default function AdminPage() {
 
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
+      {packing && (
+        <PackPanel
+          order={packing}
+          onClose={() => setPacking(null)}
+          onPacked={(orderNumber) => {
+            setPacking(null);
+            // Show it straight away; the published sheet can lag behind.
+            setOrders((current) =>
+              current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus: "Packed" } : o))
+            );
+          }}
+        />
+      )}
       <section className="mx-auto max-w-7xl">
         <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-start">
           <div>
@@ -384,12 +399,23 @@ export default function AdminPage() {
                         </button>
                       ))}
 
+                      <div className="flex flex-wrap gap-3 md:ml-auto">
+                      {!["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
+                        <button
+                          onClick={() => setPacking(order)}
+                          className="rounded-xl bg-green-500 px-4 py-3 text-sm font-black text-black transition hover:bg-green-400"
+                        >
+                          📦 PACK &amp; SCAN
+                        </button>
+                      )}
+
                       <button
                         onClick={() => printPackingSlip(order)}
-                        className="rounded-xl border border-white/30 px-4 py-3 text-sm font-black text-white transition hover:bg-white hover:text-black md:ml-auto"
+                        className="rounded-xl border border-white/30 px-4 py-3 text-sm font-black text-white transition hover:bg-white hover:text-black"
                       >
                         🖨 PACKING SLIP
                       </button>
+                      </div>
                     </div>
                   </div>
                 );

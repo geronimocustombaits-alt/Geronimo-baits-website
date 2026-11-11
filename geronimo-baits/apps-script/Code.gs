@@ -7,10 +7,15 @@
  *                can always see why a number changed (created automatically).
  *
  * Stock changes come from:
- *   • Website orders marked Paid            → adds to Sold
- *   • Zoho Books invoices (every 15 min)    → adds to Sold (voided → put back)
+ *   • Packing scan in the back office       → adds to Sold (the ONLY place sales come off)
+ *   • Zoho invoice voided                   → packed stock put back
  *   • Phone scanner: Production             → adds to In Stock
  *   • Phone scanner: Stocktake              → sets Left to the counted amount
+ *
+ * Zoho invoices (every 15 min) and website orders only create / update the
+ * Orders row. Stock comes off when the order is scanned and packed, so it
+ * matches what physically left the shelf. Orders whose stock was already taken
+ * off under the old rules (Zoho sync / website "Paid") are not deducted again.
  *
  * Settings (Project Settings → Script properties):
  *   WEBHOOK_SECRET      shared secret the website sends for scanner actions
@@ -62,6 +67,10 @@ function doPost(e) {
     if (data.action === "stockIn") {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(stockIn(ss, data));
+    }
+    if (data.action === "packOrder") {
+      if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
+      return json(packOrder(ss, sheet, data));
     }
 
     addNewOrder(sheet, data);
@@ -126,13 +135,7 @@ function updatePaymentStatus(ss, sheet, data) {
   sheet.getRange(row, COL.PAYMENT_STATUS).setValue(status);
   sheet.getRange(row, COL.ORDER_STATUS).setValue(data.orderStatus || "Paid");
   if (data.amountPaid) sheet.getRange(row, COL.AMOUNT_PAID).setValue(data.amountPaid);
-
-  // Paid (including "Paid - CHECK AMOUNT") → take the packs off stock.
-  // An AMOUNT MISMATCH order is on hold, so stock is left alone.
-  if (String(status).toLowerCase().startsWith("paid")) {
-    const items = parseOrderItems(sheet.getRange(row, COL.ITEMS).getValue());
-    recordSale(ss, items, String(data.orderNumber), "Website");
-  }
+  // Stock is taken off when the order is scanned and packed (packOrder), not here.
 }
 
 function updateOrderStatus(sheet, data) {
@@ -147,7 +150,7 @@ function parseOrderItems(text) {
     .split("\n")
     .map(line => {
       const qty = parseInt(line, 10);
-      const sku = (line.split("|").pop() || "").trim();
+      const sku = line.includes("|") ? (line.split("|").pop() || "").trim().toUpperCase() : "";
       return { sku, qty };
     })
     .filter(item => item.sku && item.qty > 0);
@@ -356,7 +359,8 @@ function syncZohoInvoices() {
         const reference = `ZOHO ${inv.invoice_number}`;
 
         if (inv.status === "void") {
-          reverseSale(ss, reference, "Zoho");
+          reverseSale(ss, reference, "Zoho");                       // old rule: taken off at invoice
+          reverseSale(ss, `PACK ${inv.invoice_number}`, "Zoho");    // new rule: taken off at packing
           markZohoOrderVoid(ss, inv.invoice_number);
           return;
         }
@@ -364,13 +368,7 @@ function syncZohoInvoices() {
         const detail = zohoGet(auth, `/invoices/${inv.invoice_id}?organization_id=${orgId}`);
         if (!detail.invoice) return;
         upsertZohoOrder(ss, detail.invoice);
-
-        if (inv.status === "draft") return; // stock is counted once it's sent
-
-        const items = (detail.invoice.line_items || [])
-          .map(li => ({ sku: String(li.sku || "").trim(), qty: num(li.quantity) }))
-          .filter(i => i.sku && i.qty > 0);
-        recordSale(ss, items, reference, "Zoho");
+        // Stock is NOT taken off here any more — it comes off when the order is packed.
       });
 
       if (reachedOld || !list.page_context || !list.page_context.has_more_page) break;
@@ -473,4 +471,58 @@ function importZohoOrders() {
     if (!list.page_context || !list.page_context.has_more_page) break;
   }
   Logger.log(`Imported ${count} Zoho invoices into Orders.`);
+}
+
+// ───────────────────────────── Packing scan ─────────────────────────────
+// The back office sends every pack scanned for one order. It must match the
+// order's ITEMS exactly (every SKU, every quantity, nothing extra), otherwise
+// nothing changes and the mismatches are sent back. On a match the packs are
+// added to Sold (reference "PACK <order>") and ORDER STATUS becomes Packed.
+
+function totalsBySku(items) {
+  const totals = {};
+  items.forEach(i => {
+    const sku = String(i.sku || "").trim().toUpperCase();
+    const qty = Math.floor(num(i.qty));
+    if (sku && qty > 0) totals[sku] = (totals[sku] || 0) + qty;
+  });
+  return totals;
+}
+
+function packOrder(ss, sheet, data) {
+  const orderNumber = String(data.orderNumber || "").trim();
+  const row = orderNumber ? findRow(sheet, orderNumber) : -1;
+  if (row < 0) return { success: false, error: "Order not found in the Orders tab" };
+
+  const status = String(sheet.getRange(row, COL.ORDER_STATUS).getValue()).toLowerCase();
+  if (status === "cancelled") return { success: false, error: "This order is cancelled" };
+
+  const needed = totalsBySku(parseOrderItems(sheet.getRange(row, COL.ITEMS).getValue()));
+  const scanned = totalsBySku(data.items || []);
+
+  const problems = [];
+  Object.keys(needed).forEach(sku => {
+    const got = scanned[sku] || 0;
+    if (got !== needed[sku]) problems.push(`${sku}: scanned ${got} of ${needed[sku]}`);
+  });
+  Object.keys(scanned).forEach(sku => {
+    if (!(sku in needed)) problems.push(`${sku} is not on this order`);
+  });
+  if (problems.length) return { success: false, error: "Scans don't match the order", problems };
+
+  // Already taken off? (packed before, or counted under the old Zoho / website rules)
+  const log = logSheet(ss);
+  const packRef = `PACK ${orderNumber}`;
+  const alreadyOff =
+    alreadyLogged(log, packRef, "SALE") ||
+    alreadyLogged(log, `ZOHO ${orderNumber}`, "SALE") ||
+    alreadyLogged(log, orderNumber, "SALE");
+
+  if (!alreadyOff) {
+    const items = Object.keys(needed).map(sku => ({ sku, qty: needed[sku] }));
+    recordSale(ss, items, packRef, "Packing");
+  }
+
+  sheet.getRange(row, COL.ORDER_STATUS).setValue("Packed");
+  return { success: true, deducted: !alreadyOff };
 }
