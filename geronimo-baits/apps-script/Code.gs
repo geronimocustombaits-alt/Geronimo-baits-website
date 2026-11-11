@@ -398,8 +398,13 @@ function upsertZohoOrder(ss, invoice) {
   const products = lines.filter(li => String(li.sku || "").trim());
   const extras = lines.filter(li => !String(li.sku || "").trim()); // delivery etc.
 
+  // Keep Zoho's description (e.g. "Jungle Camo with red flake") so custom colours
+  // show on the packing screen. "|" is reserved as the SKU separator.
   const items = products
-    .map(li => `${num(li.quantity)}x ${li.name} | ${String(li.sku).trim()}`)
+    .map(li => {
+      const desc = String(li.description || "").replace(/\|/g, "/").replace(/\s*\n\s*/g, " ").trim();
+      return `${num(li.quantity)}x ${li.name}${desc ? " - " + desc : ""} | ${String(li.sku).trim()}`;
+    })
     .join("\n");
   const productTotal = products.reduce((sum, li) => sum + num(li.item_total), 0);
   const shipping = extras.reduce((sum, li) => sum + num(li.item_total), 0);

@@ -19,8 +19,9 @@ type PackOrder = {
 type Line = {
   key: string;
   label: string;
-  sku: string; // "" = no barcode (delivery, custom work…) → tick by hand
+  sku: string; // "" = no barcode → tick by hand
   needed: number;
+  custom: boolean; // custom colour (…-CC-…) → usually no label, tick by hand
 };
 
 type Flash = { type: "ok" | "error"; text: string } | null;
@@ -40,12 +41,9 @@ function parseItems(text: string): Line[] {
       const sku = hasSku ? (raw.split("|").pop() || "").trim().toUpperCase() : "";
       const label = (hasSku ? raw.slice(0, raw.lastIndexOf("|")) : raw).replace(/^\d+\s*x\s*/i, "").trim();
       const needed = Number.isFinite(qty) && qty > 0 ? qty : 1;
-      const existing = sku ? lines.find((l) => l.sku === sku) : undefined;
-      if (existing) {
-        existing.needed += needed; // same SKU on two lines → one total
-      } else {
-        lines.push({ key: sku || `line-${i}`, label: label || sku, sku, needed });
-      }
+      // Every order line stays its own row, so two custom colours that share a
+      // SKU (e.g. WB-CC-43-06) still show as two separate colours to pack.
+      lines.push({ key: `line-${i}`, label: label || sku, sku, needed, custom: /-CC-/.test(sku) });
     });
   return lines;
 }
@@ -114,18 +112,21 @@ export default function PackPanel({
     const sku = raw.trim().toUpperCase();
     if (!sku) return;
     setProblems([]);
-    const line = lines.find((l) => l.sku === sku);
-    if (!line) {
+    const matches = lines.filter((l) => l.sku === sku);
+    if (matches.length === 0) {
       beep(false);
       setFlash({ type: "error", text: `✖ ${sku} is NOT on this order — keep it out of the box.` });
       return;
     }
-    const have = countsRef.current[line.key] || 0;
-    if (have >= line.needed) {
+    // Same SKU on several lines → fill the first one that still needs packs
+    const line = matches.find((l) => (countsRef.current[l.key] || 0) < l.needed);
+    if (!line) {
+      const total = matches.reduce((s, l) => s + l.needed, 0);
       beep(false);
-      setFlash({ type: "error", text: `✖ Too many: ${line.label} needs ${line.needed}, already scanned ${have}.` });
+      setFlash({ type: "error", text: `✖ Too many: ${sku} — this order only needs ${total}.` });
       return;
     }
+    const have = countsRef.current[line.key] || 0;
     beep(true);
     setCounts((c) => ({ ...c, [line.key]: have + 1 }));
     setFlash({ type: "ok", text: `✔ ${line.label} (${have + 1}/${line.needed})` });
@@ -208,7 +209,8 @@ export default function PackPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           orderNumber: order.orderNumber,
-          items: lines.filter((l) => l.sku).map((l) => ({ sku: l.sku, qty: counts[l.key] || 0 })),
+          // the sheet adds up lines that share a SKU
+          items: lines.filter((l) => l.sku).map((l) => ({ sku: l.sku, qty: Math.min(counts[l.key] || 0, l.needed) })),
         }),
       });
       if (response.status === 401) {
@@ -334,7 +336,14 @@ export default function PackPanel({
                       {done ? "✔ " : ""}
                       {line.label}
                     </p>
-                    <p className="text-xs text-gray-500">{line.sku || "No barcode — tick by hand"}</p>
+                    <p className="text-xs text-gray-500">
+                      {line.sku || "No barcode"}
+                      {(!line.sku || line.custom) && (
+                        <span className="ml-2 rounded bg-yellow-500/15 px-1.5 py-0.5 font-bold text-yellow-400">
+                          {line.custom ? "CUSTOM · " : ""}TICK BY HAND
+                        </span>
+                      )}
+                    </p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <button
