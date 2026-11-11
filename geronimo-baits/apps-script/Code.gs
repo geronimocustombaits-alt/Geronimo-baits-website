@@ -68,6 +68,10 @@ function doPost(e) {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(stockIn(ss, data));
     }
+    if (data.action === "getInventory") {
+      if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
+      return json(getInventory(ss));
+    }
     if (data.action === "packOrder") {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(packOrder(ss, sheet, data));
@@ -531,4 +535,43 @@ function packOrder(ss, sheet, data) {
 
   sheet.getRange(row, COL.ORDER_STATUS).setValue("Packed");
   return { success: true, deducted: !alreadyOff };
+}
+
+// ───────────────────────────── Live stock (back office) ─────────────────────────────
+// Returns every Inventory row, grouped under the product heading above it.
+// Read live (no published-CSV delay).
+
+function getInventory(ss) {
+  const inv = ss.getSheetByName(INVENTORY_SHEET);
+  const values = inv.getDataRange().getValues();
+  const items = [];
+
+  INVENTORY_BLOCKS.forEach(block => {
+    const c = block.skuCol - 1; // A or O
+    let product = "";
+    for (let r = 0; r < values.length; r++) {
+      const first = String(values[r][c] || "").trim();
+      const second = String(values[r][c + 1] || "").trim();
+      if (!first) continue;
+      if (first === "SKU") continue;
+      const looksLikeSku = /^[A-Z]+-[A-Z0-9]+-\d+-\d+$/i.test(first);
+      if (!looksLikeSku) {
+        product = first; // heading row, e.g. Warvipers 4.5"
+        continue;
+      }
+      if (/meaning/i.test(product)) continue; // the "SKU MEANING" key at the top
+      const inStock = num(values[r][block.inStockCol - 1]);
+      const sold = num(values[r][block.soldCol - 1]);
+      items.push({
+        sku: first,
+        colour: second,
+        product,
+        par: num(values[r][c + 2]),
+        inStock,
+        sold,
+        left: inStock - sold,
+      });
+    }
+  });
+  return { success: true, items, at: new Date().toISOString() };
 }

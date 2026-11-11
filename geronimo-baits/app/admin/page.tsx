@@ -252,6 +252,12 @@ export default function AdminPage() {
             >
               📷 SCANNER
             </a>
+            <a
+              href="/admin/stock"
+              className="rounded-xl border border-green-500 px-5 py-2 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
+            >
+              📦 STOCK
+            </a>
             <button
               onClick={logout}
               className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"

@@ -184,9 +184,14 @@ export default function ScanPage() {
             <p className="text-xs font-black tracking-[0.4em] text-green-500">GERONIMO BAITS</p>
             <h1 className="mt-1 text-3xl font-black">📷 STOCK SCANNER</h1>
           </div>
-          <a href="/admin" className="rounded-xl border border-green-500/40 px-3 py-2 text-sm font-bold text-green-500">
-            ← ADMIN
-          </a>
+          <div className="flex gap-2">
+            <a href="/admin/stock" className="rounded-xl border border-green-500/40 px-3 py-2 text-sm font-bold text-green-500">
+              📦 STOCK
+            </a>
+            <a href="/admin" className="rounded-xl border border-green-500/40 px-3 py-2 text-sm font-bold text-green-500">
+              ← ADMIN
+            </a>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2 rounded-2xl border border-green-500/20 p-1">
