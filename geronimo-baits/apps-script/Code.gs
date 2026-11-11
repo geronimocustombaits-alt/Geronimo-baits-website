@@ -415,7 +415,9 @@ function upsertZohoOrder(ss, invoice) {
   const address = [ship.address, ship.street2, ship.city, ship.state, ship.zip]
     .filter(Boolean).join(", ");
   const person = (invoice.contact_persons_details || [])[0] || {};
-  const phone = person.mobile || person.phone || "";
+  // Leading ' keeps "+27 …" as text (otherwise Sheets reads it as a formula → #ERROR!)
+  const rawPhone = String(person.mobile || person.phone || "").trim();
+  const phone = rawPhone ? `'${rawPhone}` : "";
   const paid = num(invoice.total) - num(invoice.balance);
 
   const values = [
