@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import AdminNav from "../AdminNav";
 
 // Live stock: every product and colour on the Inventory tab, with what's left.
 // Refreshes itself every minute.
@@ -117,23 +118,11 @@ export default function StockPage() {
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
       <section className="mx-auto max-w-7xl">
-        <div className="mb-8 flex flex-col justify-between gap-6 md:flex-row md:items-start">
-          <div>
-            <p className="text-sm font-black tracking-[0.4em] text-green-500">GERONIMO BAITS</p>
-            <h1 className="mt-3 text-4xl font-black md:text-5xl">LIVE STOCK</h1>
-            <p className="mt-3 text-gray-400">
-              What&apos;s on the shelf right now{updatedAt ? ` · updated ${updatedAt}` : ""}.
-            </p>
-          </div>
-          <div className="flex gap-3 self-start">
-            <a href="/admin/scan" className="rounded-xl bg-green-500 px-5 py-2 text-sm font-black text-black hover:bg-green-400">
-              📷 SCANNER
-            </a>
-            <a href="/admin" className="rounded-xl border border-green-500/40 px-5 py-2 text-sm font-bold text-green-500">
-              ← ORDERS
-            </a>
-          </div>
-        </div>
+        <AdminNav
+          current="/admin/stock"
+          title="LIVE STOCK"
+          subtitle={`What's on the shelf right now${updatedAt ? ` · updated ${updatedAt}` : ""}.`}
+        />
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
           <Stat label="PACKS ON THE SHELF" value={stats.packs} />

@@ -50,6 +50,7 @@ export async function GET(req: Request) {
           deliveryAddress: get("DELIVERY ADDRESS"),
           amountPaid: get("AMOUNT PAID"),
           huntBox: get("HUNT BOX"),
+          referral: get("REFERRAL"),
         };
       })
       .filter((order) => order.orderNumber);

@@ -49,6 +49,8 @@ export async function POST(req: Request) {
   const customerEmail = text(body.customerEmail, 120);
   const deliveryMethod = text(body.deliveryMethod, 40);
   const huntBoxName = text(body.huntBoxName, 40);
+  // Ambassador referral code: tracking only, no discount
+  const referralCode = text(body.referralCode, 20).toUpperCase().replace(/[^A-Z0-9-]/g, "");
 
   if (!customerName || !customerPhone || !customerEmail) {
     return fail("Please fill in your name, phone number and email.");
@@ -168,6 +170,7 @@ export async function POST(req: Request) {
     lockerName,
     deliveryAddress: deliveryAddress || lockerAddress,
     huntBox: huntBoxName || "",
+    referralCode,
     cartTotal,
     shippingCost,
     grandTotal,

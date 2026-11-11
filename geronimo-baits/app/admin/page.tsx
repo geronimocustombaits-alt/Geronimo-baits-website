@@ -2,6 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import PackPanel from "./PackPanel";
+import AdminNav from "./AdminNav";
+import { sheetAction } from "@/lib/sheetAction";
 
 type Order = {
   orderNumber: string;
@@ -21,6 +23,7 @@ type Order = {
   deliveryAddress: string;
   amountPaid: string;
   huntBox: string;
+  referral: string;
 };
 
 type Filter = "all" | "awaiting" | "topack" | "shipped" | "completed" | "problems";
@@ -128,6 +131,24 @@ export default function AdminPage() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
   const [packing, setPacking] = useState<Order | null>(null);
+  const [ambassadorCodes, setAmbassadorCodes] = useState<{ code: string; name: string }[]>([]);
+
+  // Ambassador codes for the referral picker on each order
+  useEffect(() => {
+    sheetAction<{ ambassadors: { code: string; name: string }[] }>("getAmbassadors").then((data) => {
+      if (data.success) setAmbassadorCodes((data.ambassadors || []).map((a) => ({ code: a.code, name: a.name })));
+    });
+  }, []);
+
+  async function setReferral(orderNumber: string, code: string) {
+    setError("");
+    const data = await sheetAction("setReferral", { orderNumber, code });
+    if (!data.success) {
+      setError(`Couldn't set the ambassador on ${orderNumber}: ${data.error || "try again"}`);
+      return;
+    }
+    setOrders((current) => current.map((o) => (o.orderNumber === orderNumber ? { ...o, referral: code } : o)));
+  }
 
   async function loadOrders() {
     try {
@@ -191,10 +212,6 @@ export default function AdminPage() {
     }
   }
 
-  async function logout() {
-    await fetch("/api/admin/login", { method: "DELETE" });
-    window.location.href = "/admin/login";
-  }
 
   const stats = useMemo(() => {
     const paid = orders.filter(isPaid);
@@ -238,34 +255,7 @@ export default function AdminPage() {
         />
       )}
       <section className="mx-auto max-w-7xl">
-        <div className="mb-10 flex flex-col justify-between gap-6 md:flex-row md:items-start">
-          <div>
-            <p className="text-sm font-black tracking-[0.4em] text-green-500">GERONIMO BAITS</p>
-            <h1 className="mt-3 text-4xl font-black md:text-5xl">ADMIN DASHBOARD</h1>
-            <p className="mt-3 text-gray-400">Manage orders, payments and packing progress.</p>
-          </div>
-
-          <div className="flex gap-3 self-start">
-            <a
-              href="/admin/scan"
-              className="rounded-xl bg-green-500 px-5 py-2 text-sm font-black text-black transition hover:bg-green-400"
-            >
-              📷 SCANNER
-            </a>
-            <a
-              href="/admin/stock"
-              className="rounded-xl border border-green-500 px-5 py-2 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
-            >
-              📦 STOCK
-            </a>
-            <button
-              onClick={logout}
-              className="rounded-xl border border-red-500/60 px-5 py-2 text-sm font-bold text-red-400 transition hover:bg-red-500 hover:text-black"
-            >
-              LOG OUT
-            </button>
-          </div>
-        </div>
+        <AdminNav current="/admin" title="ADMIN DASHBOARD" subtitle="Manage orders, payments and packing progress." />
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <Stat label="TOTAL ORDERS" value={stats.total} />
@@ -379,6 +369,25 @@ export default function AdminPage() {
                         )}
                       </Info>
                     </div>
+
+                    <label className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-500">
+                      AMBASSADOR
+                      <select
+                        value={order.referral || ""}
+                        onChange={(e) => setReferral(order.orderNumber, e.target.value)}
+                        className="rounded-lg border border-green-500/30 bg-black px-3 py-2 text-sm font-bold text-green-500"
+                      >
+                        <option value="">— none —</option>
+                        {ambassadorCodes.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.name} ({a.code})
+                          </option>
+                        ))}
+                        {order.referral && !ambassadorCodes.some((a) => a.code === order.referral) && (
+                          <option value={order.referral}>{order.referral} (unknown code)</option>
+                        )}
+                      </select>
+                    </label>
 
                     <div className="mt-5 rounded-xl border border-green-500/10 bg-black/70 p-4">
                       <p className="text-xs font-bold text-gray-500">

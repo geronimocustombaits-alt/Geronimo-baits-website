@@ -101,6 +101,7 @@ function BaitsContent() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [customerEmail, setCustomerEmail] = useState("");
+  const [referralCode, setReferralCode] = useState(""); // ambassador code (tracking only, no discount)
   const [deliveryMethod, setDeliveryMethod] = useState("PUDO Locker");
 
   const [locker, setLocker] = useState<SelectedLocker | null>(null);
@@ -144,6 +145,7 @@ function BaitsContent() {
         if (saved.customerName) setCustomerName(saved.customerName);
         if (saved.customerPhone) setCustomerPhone(saved.customerPhone);
         if (saved.customerEmail) setCustomerEmail(saved.customerEmail);
+        if (saved.referralCode) setReferralCode(saved.referralCode);
         if (saved.deliveryMethod && DELIVERY_METHODS.includes(saved.deliveryMethod)) {
           setDeliveryMethod(saved.deliveryMethod);
         }
@@ -169,6 +171,7 @@ function BaitsContent() {
           customerName,
           customerPhone,
           customerEmail,
+          referralCode,
           deliveryMethod,
           locker,
           address,
@@ -177,7 +180,7 @@ function BaitsContent() {
     } catch {
       // Ignore: saving is only a convenience.
     }
-  }, [restored, cart, huntBoxMode, huntBoxName, huntBoxSize, customerName, customerPhone, customerEmail, deliveryMethod, locker, address]);
+  }, [restored, cart, huntBoxMode, huntBoxName, huntBoxSize, customerName, customerPhone, customerEmail, referralCode, deliveryMethod, locker, address]);
 
   // Once live stock is loaded, drop sold-out items and trim quantities.
   useEffect(() => {
@@ -308,6 +311,7 @@ function BaitsContent() {
           customerName,
           customerPhone,
           customerEmail,
+          referralCode,
           deliveryMethod,
           huntBoxName: huntBoxMode ? huntBoxName : "",
           locker: deliveryMethod === LOCKER_METHOD ? locker : null,
@@ -707,6 +711,15 @@ function BaitsContent() {
                       value={customerEmail}
                       onChange={(e) => setCustomerEmail(e.target.value)}
                       className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white"
+                    />
+
+                    <input
+                      type="text"
+                      placeholder="Ambassador code (optional)"
+                      value={referralCode}
+                      maxLength={20}
+                      onChange={(e) => setReferralCode(e.target.value.toUpperCase().replace(/[^A-Z0-9-]/g, ""))}
+                      className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 uppercase text-white"
                     />
 
                     <select

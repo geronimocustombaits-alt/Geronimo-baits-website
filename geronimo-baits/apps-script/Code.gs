@@ -37,6 +37,7 @@ const COL = {
   DELIVERY_ADDRESS: 15,// O
   AMOUNT_PAID: 16,     // P
   HUNT_BOX: 17,        // Q
+  REFERRAL: 18,        // R  ambassador code
 };
 
 // Inventory blocks: most ranges sit in columns A–L, Wargrubs sit in O–T.
@@ -67,6 +68,22 @@ function doPost(e) {
     if (data.action === "stockIn") {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(stockIn(ss, data));
+    }
+    // Back office actions (all need the shared secret)
+    const BACK_OFFICE = {
+      getMakeList: () => getMakeList(ss),
+      getBatches: () => getBatches(ss),
+      addBatch: () => addBatch(ss, data),
+      updateBatch: () => updateBatch(ss, data),
+      getSales: () => getSales(),
+      refreshSales: () => { refreshSalesData(); return getSales(); },
+      getAmbassadors: () => getAmbassadors(ss),
+      claimReward: () => claimReward(ss, data),
+      setReferral: () => setReferral(ss, sheet, data),
+    };
+    if (BACK_OFFICE[data.action]) {
+      if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
+      return json(BACK_OFFICE[data.action]());
     }
     if (data.action === "getInventory") {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
@@ -120,6 +137,7 @@ function addNewOrder(sheet, data) {
     data.deliveryAddress || "",
     "",
     data.huntBox || "",
+    String(data.referralCode || "").trim().toUpperCase().slice(0, 20),
   ]);
 }
 
@@ -574,4 +592,517 @@ function getInventory(ss) {
     }
   });
   return { success: true, items, at: new Date().toISOString() };
+}
+
+// ═════════════════════════════ Back office add-ons ═════════════════════════════
+// Run setupBackOffice() once after pasting this script. It creates the extra
+// tabs (Production, Ambassadors, Retailers, Sales Lines, Dashboard Data), the
+// REFERRAL column on Orders, and the timers:
+//   • Zoho sync          every 15 min
+//   • Sales dashboard    every hour
+//   • Low-stock email    every morning ~07:00
+
+const PRODUCTION_SHEET = "Production";
+const AMBASSADOR_SHEET = "Ambassadors";
+const RETAILER_SHEET = "Retailers";
+const SALES_LINES_SHEET = "Sales Lines";
+const DASHBOARD_SHEET = "Dashboard Data";
+const DONE_STATUSES = ["packed", "shipped", "completed", "cancelled"];
+const PRODUCT_NAMES = {
+  "WV-45": "Warvipers 4.5\"", "AP-5": "Apache Sticks 5\"", "AP-4": "Apache Sticks 4\"",
+  "WB-43": "Warbombs 4.3\"", "WC-33": "Warcraws 3.3\"", "WCH-25": "Warchins 2.5\"",
+  "SWB-50": "Swimbaits 5\"", "CS-5": "Coreshots 5\"", "WH-35": "Warhawks 3.3\"",
+  "PH-35": "Phantoms 3.3\"", "WF-4": "Warfrogs 4\"", "WG-3": "Wargrubs 3\"",
+};
+
+function setupBackOffice() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+
+  const orders = ss.getSheetByName(SHEET_NAME);
+  if (String(orders.getRange(1, COL.REFERRAL).getValue()).trim() === "") {
+    orders.getRange(1, COL.REFERRAL).setValue("REFERRAL").setFontWeight("bold");
+  }
+
+  ensureSheet(ss, PRODUCTION_SHEET, ["BATCH", "DATE POURED", "SKU", "COLOUR", "BAITS POURED", "PLASTISOL ML", "STATUS", "PACKS", "DATE PACKED", "NOTES"]);
+
+  const amb = ensureSheet(ss, AMBASSADOR_SHEET, ["CODE", "NAME", "LEVEL", "OWN CUSTOMER NAME", "PACKS PER FREE PACK", "FREE PACKS CLAIMED", "ACTIVE"]);
+  if (amb.getLastRow() < 2) {
+    amb.getRange(2, 1, 5, 7).setValues([
+      ["ERIK", "Erik", "Senior", "", 20, 0, "Yes"],
+      ["JOHAN", "Johan", "Senior", "", 20, 0, "Yes"],
+      ["GEORGE", "George", "Senior", "", 20, 0, "Yes"],
+      ["HENDRE", "Hendre", "Junior", "", 20, 0, "Yes"],
+      ["KEAGAN", "Keagan Thomas", "Junior", "Keagan Thomas", 20, 0, "Yes"],
+    ]);
+  }
+
+  const ret = ensureSheet(ss, RETAILER_SHEET, ["ZOHO CUSTOMER NAME", "START DATE", "MIN PACKS", "PERIOD MONTHS", "MANDATE MONTHS", "NOTES"]);
+  if (ret.getLastRow() < 2) {
+    ret.getRange(2, 1, 1, 6).setValues([[
+      "Leo Cycles, Fishing and Sport", "2026-10-29", 300, 3, 6, "Check the start date = agreement commencement",
+    ]]);
+  }
+
+  ensureSheet(ss, SALES_LINES_SHEET, ["INVOICE", "MODIFIED", "DATE", "CUSTOMER", "STATUS", "TOTAL", "BALANCE", "SKU", "ITEM", "QTY", "LINE TOTAL"]);
+  ensureSheet(ss, DASHBOARD_SHEET, ["UPDATED", "JSON"]);
+
+  // Timers
+  const wanted = { syncZohoInvoices: "15min", refreshSalesData: "hourly", checkLowStock: "daily" };
+  ScriptApp.getProjectTriggers()
+    .filter(t => wanted[t.getHandlerFunction()])
+    .forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger("syncZohoInvoices").timeBased().everyMinutes(15).create();
+  ScriptApp.newTrigger("refreshSalesData").timeBased().everyHours(1).create();
+  ScriptApp.newTrigger("checkLowStock").timeBased().everyDays(1).atHour(7).inTimezone("Africa/Johannesburg").create();
+
+  refreshSalesData();
+  Logger.log("Back office set up.");
+}
+
+function ensureSheet(ss, name, headers) {
+  let sh = ss.getSheetByName(name);
+  if (!sh) {
+    sh = ss.insertSheet(name);
+    sh.getRange(1, 1, 1, headers.length).setValues([headers]).setFontWeight("bold");
+    sh.setFrozenRows(1);
+  }
+  return sh;
+}
+
+function sheetRows(sh) {
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();
+}
+
+function packSize(sku) {
+  const m = String(sku).match(/-(\d+)$/);
+  return m ? Number(m[1]) : 0;
+}
+
+function asDateText(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, "Africa/Johannesburg", "yyyy-MM-dd");
+  return String(value || "").slice(0, 10);
+}
+
+// ───────────── 1. What to make for open orders ─────────────
+// Open = not packed / shipped / completed / cancelled. Shortfall per SKU against
+// what's Left on the shelf, plus the orders waiting on it.
+
+function getMakeList(ss) {
+  const inv = getInventory(ss).items;
+  const bySku = {};
+  inv.forEach(i => { bySku[i.sku.toUpperCase()] = i; });
+
+  const orders = sheetRows(ss.getSheetByName(SHEET_NAME));
+  const need = {};
+  const openOrders = [];
+
+  orders.forEach(r => {
+    const orderNumber = String(r[0] || "").trim();
+    if (!orderNumber) return;
+    const status = String(r[COL.ORDER_STATUS - 1] || "").toLowerCase();
+    const pay = String(r[COL.PAYMENT_STATUS - 1] || "").toLowerCase();
+    if (DONE_STATUSES.includes(status) || pay === "void") return;
+    openOrders.push({ orderNumber, customer: String(r[2] || ""), paymentStatus: String(r[COL.PAYMENT_STATUS - 1] || "") });
+
+    String(r[COL.ITEMS - 1] || "").split("\n").forEach(line => {
+      const qty = parseInt(line, 10);
+      if (!(qty > 0)) return;
+      const hasSku = line.includes("|");
+      const sku = hasSku ? line.split("|").pop().trim().toUpperCase() : "";
+      const label = (hasSku ? line.slice(0, line.lastIndexOf("|")) : line).replace(/^\s*\d+\s*x\s*/i, "").trim();
+      const key = sku || `NOSKU:${label}`;
+      if (!need[key]) need[key] = { sku, label, needed: 0, orders: [] };
+      need[key].needed += qty;
+      if (need[key].orders.indexOf(orderNumber) < 0) need[key].orders.push(orderNumber);
+    });
+  });
+
+  const rows = Object.keys(need).map(key => {
+    const n = need[key];
+    const item = n.sku ? bySku[n.sku] : null;
+    const left = item ? item.left : 0;
+    const short = Math.max(n.needed - Math.max(left, 0), 0);
+    return {
+      sku: n.sku,
+      label: item ? `${item.product} – ${item.colour}` : n.label,
+      product: item ? item.product : "",
+      tracked: Boolean(item),
+      custom: /-CC-/.test(n.sku),
+      needed: n.needed,
+      left,
+      short,
+      baitsPerPack: packSize(n.sku),
+      baitsToPour: short * packSize(n.sku),
+      orders: n.orders,
+    };
+  });
+  rows.sort((a, b) => b.short - a.short || a.label.localeCompare(b.label));
+  return { success: true, rows, openOrders };
+}
+
+// ───────────── 2. Production batches: pour → cure → pack ─────────────
+// Marking a batch Packed adds its packs to In Stock (once), so don't also scan
+// those packs in with the scanner's Production mode.
+
+function getBatches(ss) {
+  const sh = ensureSheet(ss, PRODUCTION_SHEET, ["BATCH", "DATE POURED", "SKU", "COLOUR", "BAITS POURED", "PLASTISOL ML", "STATUS", "PACKS", "DATE PACKED", "NOTES"]);
+  const batches = sheetRows(sh).filter(r => r[0]).map(r => ({
+    batch: String(r[0]),
+    datePoured: asDateText(r[1]),
+    sku: String(r[2]),
+    colour: String(r[3]),
+    baits: num(r[4]),
+    plastisolMl: num(r[5]),
+    status: String(r[6] || "Curing"),
+    packs: num(r[7]),
+    datePacked: asDateText(r[8]),
+    notes: String(r[9] || ""),
+  }));
+  batches.reverse();
+
+  // Yield: baits per litre of plastisol, per product
+  const yieldBy = {};
+  batches.forEach(b => {
+    if (!(b.plastisolMl > 0 && b.baits > 0)) return;
+    const code = String(b.sku).replace(/^([A-Z]+)-[A-Z0-9]+-(\d+)-\d+$/i, "$1-$2");
+    if (!yieldBy[code]) yieldBy[code] = { code, baits: 0, ml: 0, batches: 0 };
+    yieldBy[code].baits += b.baits;
+    yieldBy[code].ml += b.plastisolMl;
+    yieldBy[code].batches++;
+  });
+  const yields = Object.keys(yieldBy).map(k => {
+    const y = yieldBy[k];
+    return { code: y.code, batches: y.batches, baitsPerLitre: Math.round((y.baits / y.ml) * 1000) };
+  });
+  return { success: true, batches: batches.slice(0, 150), yields };
+}
+
+function addBatch(ss, data) {
+  const sku = String(data.sku || "").trim().toUpperCase();
+  const baits = Math.floor(num(data.baits));
+  if (!/^[A-Z]+-[A-Z0-9]+-\d+-\d+$/.test(sku)) return { success: false, error: "Enter a valid SKU" };
+  if (!(baits > 0)) return { success: false, error: "Enter how many baits you poured" };
+
+  const item = getInventory(ss).items.find(i => i.sku.toUpperCase() === sku);
+  const sh = ensureSheet(ss, PRODUCTION_SHEET, ["BATCH"]);
+  const now = new Date();
+  const batch = `B${Utilities.formatDate(now, "Africa/Johannesburg", "yyMMdd-HHmm")}-${sku.split("-")[1]}`;
+  sh.appendRow([
+    batch, now, sku, item ? item.colour : "", baits,
+    num(data.plastisolMl) || "", "Curing", "", "", String(data.notes || "").slice(0, 200),
+  ]);
+  return { success: true, batch, known: Boolean(item) };
+}
+
+function updateBatch(ss, data) {
+  const sh = ensureSheet(ss, PRODUCTION_SHEET, ["BATCH"]);
+  const rows = sheetRows(sh);
+  const idx = rows.findIndex(r => String(r[0]) === String(data.batch));
+  if (idx < 0) return { success: false, error: "Batch not found" };
+  const row = idx + 2;
+  const status = ["Poured", "Curing", "Packed"].includes(data.status) ? data.status : "Curing";
+
+  if (status === "Packed") {
+    const sku = String(rows[idx][2]);
+    const baits = num(rows[idx][4]);
+    const per = packSize(sku);
+    const packs = Math.floor(num(data.packs)) || (per ? Math.floor(baits / per) : 0);
+    if (!(packs > 0)) return { success: false, error: "How many packs did this batch make?" };
+    const result = stockIn(ss, { mode: "production", reference: `BATCH ${data.batch}`, items: [{ sku, qty: packs }] });
+    sh.getRange(row, 7, 1, 3).setValues([["Packed", packs, new Date()]]);
+    return { success: true, packs, addedToStock: (result.updated || 0) > 0, unknown: result.unknown || [] };
+  }
+  sh.getRange(row, 7).setValue(status);
+  return { success: true };
+}
+
+// ───────────── 3 + 6. Sales dashboard & retailer minimums (from Zoho) ─────────────
+// refreshSalesData() runs hourly: it copies invoice lines into "Sales Lines"
+// (only re-fetching invoices that changed) and stores a summary for the back office.
+
+function refreshSalesData() {
+  const props = PropertiesService.getScriptProperties();
+  const orgId = props.getProperty("ZOHO_ORG_ID");
+  if (!orgId || !props.getProperty("ZOHO_REFRESH_TOKEN")) return;
+
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const auth = zohoAuth();
+  const linesSheet = ensureSheet(ss, SALES_LINES_SHEET, ["INVOICE", "MODIFIED", "DATE", "CUSTOMER", "STATUS", "TOTAL", "BALANCE", "SKU", "ITEM", "QTY", "LINE TOTAL"]);
+
+  // Lines we already have, keyed by invoice + last-modified
+  const cached = {};
+  sheetRows(linesSheet).forEach(r => {
+    const key = `${r[0]}|${r[1]}`;
+    (cached[key] = cached[key] || []).push(r);
+  });
+
+  const invoices = [];
+  for (let page = 1; page <= 10; page++) {
+    const list = zohoGet(auth, `/invoices?organization_id=${orgId}&per_page=200&page=${page}`);
+    (list.invoices || []).forEach(i => invoices.push(i));
+    if (!list.page_context || !list.page_context.has_more_page) break;
+  }
+
+  const out = [];
+  invoices.forEach(i => {
+    if (i.status === "draft" || i.status === "void") return;
+    const modified = `M:${i.last_modified_time}`; // "M:" keeps Sheets from turning it into a date
+    const key = `${i.invoice_number}|${modified}`;
+    if (cached[key]) {
+      // keep status / balance fresh without re-fetching the lines
+      cached[key].forEach(r => { r[4] = i.status; r[6] = num(i.balance); out.push(r); });
+      return;
+    }
+    const detail = zohoGet(auth, `/invoices/${i.invoice_id}?organization_id=${orgId}`);
+    const lines = (detail.invoice && detail.invoice.line_items) || [];
+    if (!lines.length) {
+      out.push([i.invoice_number, modified, i.date, i.customer_name, i.status, num(i.total), num(i.balance), "", "", 0, 0]);
+    }
+    lines.forEach(li => out.push([
+      i.invoice_number, modified, i.date, i.customer_name, i.status,
+      num(i.total), num(i.balance), String(li.sku || "").trim().toUpperCase(), li.name, num(li.quantity), num(li.item_total),
+    ]));
+    Utilities.sleep(300);
+  });
+
+  linesSheet.getRange(2, 1, Math.max(linesSheet.getLastRow() - 1, 1), 11).clearContent();
+  if (out.length) linesSheet.getRange(2, 1, out.length, 11).setValues(out);
+
+  // Expenses
+  const expenses = [];
+  for (let page = 1; page <= 5; page++) {
+    const list = zohoGet(auth, `/expenses?organization_id=${orgId}&per_page=200&page=${page}`);
+    (list.expenses || []).forEach(e => expenses.push({ date: e.date, account: e.account_name, total: num(e.total) }));
+    if (!list.page_context || !list.page_context.has_more_page) break;
+  }
+
+  const summary = buildSalesSummary(out, expenses, ss);
+  const dash = ensureSheet(ss, DASHBOARD_SHEET, ["UPDATED", "JSON"]);
+  dash.getRange(2, 1, 1, 2).setValues([[new Date(), JSON.stringify(summary)]]);
+}
+
+function buildSalesSummary(lines, expenses, ss) {
+  const invoices = {};
+  lines.forEach(r => {
+    const [num_, , date, customer, status, total, balance, sku, item, qty, lineTotal] = r;
+    if (!invoices[num_]) invoices[num_] = { invoice: num_, date: asDateText(date), customer, status, total: num(total), balance: num(balance), lines: [] };
+    invoices[num_].status = status;
+    invoices[num_].balance = num(balance);
+    if (sku || item) invoices[num_].lines.push({ sku, item, qty: num(qty), lineTotal: num(lineTotal) });
+  });
+  const list = Object.keys(invoices).map(k => invoices[k]);
+
+  const months = {};
+  const month = d => String(d).slice(0, 7);
+  const bump = m => (months[m] = months[m] || { month: m, revenue: 0, collected: 0, expenses: 0, invoices: 0, packs: 0 });
+
+  const customers = {};
+  const products = {};
+  const skus = {};
+  list.forEach(inv => {
+    const m = bump(month(inv.date));
+    m.revenue += inv.total;
+    m.collected += inv.total - inv.balance;
+    m.invoices++;
+    customers[inv.customer] = (customers[inv.customer] || 0) + inv.total;
+    inv.lines.forEach(l => {
+      if (!/^[A-Z]+-[A-Z0-9]+-\d+-\d+$/.test(l.sku)) return; // baits only
+      m.packs += l.qty;
+      const code = l.sku.replace(/^([A-Z]+)-[A-Z0-9]+-(\d+)-\d+$/, "$1-$2");
+      const productName = String(l.item).replace(/\s*\(.*?\)\s*/g, " ").replace(/\s+/g, " ").trim();
+      if (!products[code]) products[code] = { code, name: PRODUCT_NAMES[code] || code, packs: 0, value: 0 };
+      products[code].packs += l.qty;
+      products[code].value += l.lineTotal;
+      if (!skus[l.sku]) skus[l.sku] = { sku: l.sku, name: productName, packs: 0, value: 0 };
+      skus[l.sku].packs += l.qty;
+      skus[l.sku].value += l.lineTotal;
+    });
+  });
+
+  const expenseBy = {};
+  expenses.forEach(e => {
+    bump(month(e.date)).expenses += e.total;
+    expenseBy[e.account] = (expenseBy[e.account] || 0) + e.total;
+  });
+
+  const monthList = Object.keys(months).sort().map(k => {
+    const m = months[k];
+    return Object.assign(m, { profit: m.revenue - m.expenses });
+  });
+  const round = n => Math.round(n * 100) / 100;
+  const totals = monthList.reduce((t, m) => {
+    t.revenue += m.revenue; t.collected += m.collected; t.expenses += m.expenses; t.packs += m.packs; t.invoices += m.invoices;
+    return t;
+  }, { revenue: 0, collected: 0, expenses: 0, packs: 0, invoices: 0 });
+  totals.outstanding = totals.revenue - totals.collected;
+  totals.profit = totals.revenue - totals.expenses;
+  Object.keys(totals).forEach(k => { totals[k] = round(totals[k]); });
+
+  return {
+    updated: new Date().toISOString(),
+    totals,
+    months: monthList.map(m => ({ month: m.month, revenue: round(m.revenue), collected: round(m.collected), expenses: round(m.expenses), profit: round(m.profit), invoices: m.invoices, packs: m.packs })),
+    outstanding: list.filter(i => i.balance > 0).map(i => ({ invoice: i.invoice, customer: i.customer, date: i.date, balance: i.balance, status: i.status })),
+    topCustomers: Object.keys(customers).map(c => ({ customer: c, total: round(customers[c]) })).sort((a, b) => b.total - a.total).slice(0, 8),
+    products: Object.keys(products).map(k => products[k]).sort((a, b) => b.packs - a.packs),
+    topSkus: Object.keys(skus).map(k => skus[k]).sort((a, b) => b.packs - a.packs).slice(0, 12),
+    expenseAccounts: Object.keys(expenseBy).map(a => ({ account: a, total: round(expenseBy[a]) })).sort((a, b) => b.total - a.total),
+    retailers: retailerProgress(list, ss),
+  };
+}
+
+// Rolling minimum-purchase periods for each retailer on the Retailers tab.
+function retailerProgress(invoiceList, ss) {
+  const sh = ensureSheet(ss, RETAILER_SHEET, ["ZOHO CUSTOMER NAME"]);
+  const today = new Date();
+  return sheetRows(sh).filter(r => r[0]).map(r => {
+    const customer = String(r[0]).trim();
+    const start = r[1] instanceof Date ? r[1] : new Date(`${asDateText(r[1])}T00:00:00`);
+    const minPacks = num(r[2]) || 0;
+    const periodMonths = num(r[3]) || 3;
+    const mandateMonths = num(r[4]) || 6;
+    const addMonths = (d, n) => { const x = new Date(d.getTime()); x.setMonth(x.getMonth() + n); return x; };
+    const mandateEnd = addMonths(start, mandateMonths);
+
+    const mine = invoiceList.filter(i => i.customer.trim().toLowerCase() === customer.toLowerCase());
+    const periods = [];
+    for (let p = 0; p * periodMonths < mandateMonths; p++) {
+      const from = addMonths(start, p * periodMonths);
+      const to = addMonths(start, (p + 1) * periodMonths);
+      let packs = 0, value = 0, orders = 0;
+      mine.forEach(i => {
+        const d = new Date(`${i.date}T00:00:00`);
+        if (d >= from && d < to) {
+          orders++;
+          value += i.total;
+          i.lines.forEach(l => { if (/^[A-Z]+-[A-Z0-9]+-\d+-\d+$/.test(l.sku)) packs += l.qty; });
+        }
+      });
+      const daysLeft = Math.max(Math.ceil((to - today) / 86400000), 0);
+      periods.push({
+        from: asDateText(from), to: asDateText(addMonths(to, 0)), packs, value: Math.round(value), orders,
+        target: minPacks, current: today >= from && today < to, daysLeft,
+        status: packs >= minPacks ? "met" : today >= to ? "missed" : today >= from ? "in progress" : "upcoming",
+      });
+    }
+    const before = mine.filter(i => new Date(`${i.date}T00:00:00`) < start);
+    return {
+      customer, start: asDateText(start), mandateEnd: asDateText(mandateEnd), minPacks, periodMonths,
+      periods,
+      ordersBeforeStart: before.length,
+      lastOrder: mine.length ? mine.map(i => i.date).sort().pop() : "",
+    };
+  });
+}
+
+function getSales() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const dash = ensureSheet(ss, DASHBOARD_SHEET, ["UPDATED", "JSON"]);
+  const raw = dash.getLastRow() >= 2 ? String(dash.getRange(2, 2).getValue() || "") : "";
+  if (!raw) return { success: true, summary: null };
+  return { success: true, summary: JSON.parse(raw) };
+}
+
+// ───────────── 4. Low-stock email, every morning ─────────────
+
+function checkLowStock() {
+  const ss = SpreadsheetApp.openById(SHEET_ID);
+  const items = getInventory(ss).items.filter(i => i.par > 0 && i.left < i.par);
+  const make = getMakeList(ss).rows.filter(r => r.short > 0);
+  if (!items.length && !make.length) return;
+
+  const props = PropertiesService.getScriptProperties();
+  const to = props.getProperty("ALERT_EMAIL") || "geronimocustombaits@gmail.com";
+  const rows = list => list.map(x => `<li>${x}</li>`).join("");
+
+  const out = items.filter(i => i.left <= 0);
+  const low = items.filter(i => i.left > 0);
+  const html = [
+    `<h2 style="margin:0">Geronimo Baits · stock check</h2>`,
+    make.length ? `<h3>Short for open orders (${make.length})</h3><ul>${rows(make.map(r => `<b>${r.label}</b>: need ${r.needed}, have ${Math.max(r.left, 0)} → make ${r.short} pack(s) · ${r.orders.join(", ")}`))}</ul>` : "",
+    out.length ? `<h3>Out of stock (${out.length})</h3><ul>${rows(out.map(i => `${i.product} – ${i.colour} (${i.sku}): 0 left, par ${i.par}`))}</ul>` : "",
+    low.length ? `<h3>Below par (${low.length})</h3><ul>${rows(low.map(i => `${i.product} – ${i.colour} (${i.sku}): ${i.left} left, par ${i.par}`))}</ul>` : "",
+    `<p style="color:#777">Sent by your Geronimo back office every morning. Change the address in Script properties → ALERT_EMAIL.</p>`,
+  ].join("");
+
+  MailApp.sendEmail({
+    to,
+    subject: `Geronimo stock: ${make.length ? `${make.length} short for orders · ` : ""}${out.length} out · ${low.length} low`,
+    htmlBody: html,
+  });
+}
+
+// ───────────── 5. Ambassador referral codes ─────────────
+// Orders carry the code in REFERRAL (col R): from the website checkout, or set in
+// the back office. Only PAID orders count, one code per order, and never the
+// ambassador's own orders (OWN CUSTOMER NAME on the Ambassadors tab).
+
+function readAmbassadors(ss) {
+  const sh = ensureSheet(ss, AMBASSADOR_SHEET, ["CODE"]);
+  return sheetRows(sh).map((r, i) => ({
+    row: i + 2,
+    code: String(r[0] || "").trim().toUpperCase(),
+    name: String(r[1] || ""),
+    level: String(r[2] || ""),
+    ownCustomer: String(r[3] || "").trim().toLowerCase(),
+    threshold: num(r[4]) || 20,
+    claimed: num(r[5]),
+    active: !/^no$/i.test(String(r[6] || "Yes").trim()),
+  })).filter(a => a.code);
+}
+
+function getAmbassadors(ss) {
+  const ambassadors = readAmbassadors(ss);
+  const byCode = {};
+  ambassadors.forEach(a => { byCode[a.code] = Object.assign({}, a, { orders: 0, packs: 0, value: 0, recent: [] }); });
+
+  sheetRows(ss.getSheetByName(SHEET_NAME)).forEach(r => {
+    const code = String(r[COL.REFERRAL - 1] || "").trim().toUpperCase();
+    const a = byCode[code];
+    if (!a) return;
+    const paid = String(r[COL.PAYMENT_STATUS - 1] || "").toLowerCase().startsWith("paid");
+    const cancelled = String(r[COL.ORDER_STATUS - 1] || "").toLowerCase() === "cancelled";
+    const customer = String(r[2] || "").trim().toLowerCase();
+    if (!paid || cancelled) return;
+    if (a.ownCustomer && customer === a.ownCustomer) return; // own orders never count
+    const packs = parseOrderItems(r[COL.ITEMS - 1]).reduce((s, i) => s + i.qty, 0);
+    a.orders++;
+    a.packs += packs;
+    a.value += num(r[9]);
+    a.recent.push({ orderNumber: String(r[0]), customer: String(r[2]), packs, date: asDateText(r[1]) });
+  });
+
+  const board = Object.keys(byCode).map(k => {
+    const a = byCode[k];
+    const earned = Math.floor(a.packs / a.threshold);
+    return {
+      code: a.code, name: a.name, level: a.level, active: a.active, threshold: a.threshold,
+      orders: a.orders, packs: a.packs, value: Math.round(a.value),
+      earned, claimed: a.claimed, available: Math.max(earned - a.claimed, 0),
+      toNext: a.threshold - (a.packs % a.threshold),
+      recent: a.recent.slice(-5).reverse(),
+    };
+  }).sort((x, y) => y.packs - x.packs);
+  return { success: true, ambassadors: board };
+}
+
+function claimReward(ss, data) {
+  const code = String(data.code || "").trim().toUpperCase();
+  const a = readAmbassadors(ss).find(x => x.code === code);
+  if (!a) return { success: false, error: "Unknown ambassador code" };
+  const board = getAmbassadors(ss).ambassadors.find(x => x.code === code);
+  if (!board || board.available < 1) return { success: false, error: "No free packs to claim yet" };
+  const sh = ss.getSheetByName(AMBASSADOR_SHEET);
+  sh.getRange(a.row, 6).setValue(a.claimed + 1);
+  return { success: true, claimed: a.claimed + 1 };
+}
+
+function setReferral(ss, sheet, data) {
+  const row = findRow(sheet, data.orderNumber);
+  if (row < 0) return { success: false, error: "Order not found" };
+  const code = String(data.code || "").trim().toUpperCase();
+  if (code && !readAmbassadors(ss).some(a => a.code === code)) return { success: false, error: "Unknown ambassador code" };
+  sheet.getRange(row, COL.REFERRAL).setValue(code);
+  return { success: true };
 }
