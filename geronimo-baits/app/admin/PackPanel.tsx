@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useScannerInput } from "./useScannerInput";
 
 // Pack & scan one order.
 // Scan every pack going into the box. Each scan is checked against the order:
@@ -135,6 +136,12 @@ export default function PackPanel({
   // camera callback always uses the latest scan()
   const scanRef = useRef(scan);
   scanRef.current = scan;
+
+  // Handheld scanner: scans land here wherever you are on the screen
+  useScannerInput((code) => {
+    scanRef.current(code);
+    setManualSku("");
+  });
 
   function adjust(line: Line, delta: number) {
     setProblems([]);
@@ -307,9 +314,11 @@ export default function PackPanel({
           }}
         >
           <input
+            data-scan-target="1"
+            autoFocus
             value={manualSku}
             onChange={(e) => setManualSku(e.target.value)}
-            placeholder="OR TYPE A SKU"
+            placeholder="SCAN, OR TYPE A SKU"
             className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm uppercase text-white outline-none focus:border-green-500"
           />
           <button className="rounded-xl border-2 border-green-500 px-5 font-black text-green-500">ADD</button>

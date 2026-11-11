@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useScannerInput } from "../useScannerInput";
 
 // Phone barcode scanner for stock.
 // PRODUCTION: scan each new pack → added to In Stock.
@@ -22,12 +23,14 @@ export default function ScanPage() {
   const [cameraError, setCameraError] = useState("");
   const [lastScan, setLastScan] = useState("");
   const [manualSku, setManualSku] = useState("");
+  const [perScan, setPerScan] = useState(1); // packs added by the next scan / ADD
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const controlsRef = useRef<{ stop: () => void } | null>(null);
   const lastCodeRef = useRef<{ code: string; at: number }>({ code: "", at: 0 });
+  const addScannedRef = useRef<(code: string) => void>(() => {});
 
   // Product names for the list (visible website products)
   useEffect(() => {
@@ -72,6 +75,22 @@ export default function ScanPage() {
     });
   }
 
+  function setQty(sku: string, qty: number) {
+    const n = Math.max(0, Math.min(Math.floor(qty) || 0, 10000));
+    setLines((current) => current.map((l) => (l.sku === sku ? { ...l, qty: n } : l)));
+  }
+
+  // Next scan / ADD uses "packs per scan", then it goes back to 1
+  function addScanned(code: string) {
+    addSku(code, perScan);
+    setPerScan(1);
+    setManualSku("");
+  }
+
+  // Handheld scanner: scans land here wherever you are on the page
+  useScannerInput(addScanned);
+  addScannedRef.current = addScanned;
+
   async function startCamera() {
     setCameraError("");
     try {
@@ -92,7 +111,7 @@ export default function ScanPage() {
           if (code === lastCodeRef.current.code && now - lastCodeRef.current.at < SAME_CODE_PAUSE_MS) return;
           lastCodeRef.current = { code, at: now };
           if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate(60);
-          addSku(code);
+          addScannedRef.current(code);
         }
       );
       controlsRef.current = controls;
@@ -219,18 +238,35 @@ export default function ScanPage() {
           className="mt-4 flex gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            addSku(manualSku);
-            setManualSku("");
+            addScanned(manualSku);
           }}
         >
           <input
+            data-scan-target="1"
+            autoFocus
             value={manualSku}
             onChange={(e) => setManualSku(e.target.value)}
-            placeholder="Or type a SKU, e.g. WV-BM-45-12"
-            className="flex-1 rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm uppercase"
+            placeholder="Scan, or type a SKU e.g. WV-BM-45-12"
+            className="min-w-0 flex-1 rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm uppercase"
           />
+          <label className="flex items-center gap-1 rounded-xl border border-green-500/30 px-2 text-xs font-bold text-gray-400">
+            ×
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              value={perScan}
+              onChange={(e) => setPerScan(Math.max(1, Math.floor(Number(e.target.value)) || 1))}
+              onFocus={(e) => e.target.select()}
+              className="w-12 bg-transparent py-3 text-center text-sm font-black text-green-500 outline-none"
+              aria-label="Packs per scan"
+            />
+          </label>
           <button className="rounded-xl border border-green-500 px-4 font-bold text-green-500">ADD</button>
         </form>
+        <p className="mt-1 text-xs text-gray-500">
+          Handheld scanner: just scan — no need to click the box. Set × to e.g. 10 before scanning to add 10 packs at once.
+        </p>
 
         <div className="mt-5 rounded-2xl border border-green-500/20 p-4">
           <div className="mb-3 flex items-center justify-between">
@@ -260,7 +296,16 @@ export default function ScanPage() {
                   <button onClick={() => addSku(line.sku, -1)} className="h-9 w-9 rounded-lg border border-green-500/40 font-black">
                     −
                   </button>
-                  <span className="w-8 text-center text-lg font-black text-green-500">{line.qty}</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    value={line.qty}
+                    onChange={(e) => setQty(line.sku, Number(e.target.value))}
+                    onFocus={(e) => e.target.select()}
+                    className="w-14 rounded-lg border border-green-500/20 bg-black py-1 text-center text-lg font-black text-green-500 outline-none focus:border-green-500"
+                    aria-label={`Packs of ${line.sku}`}
+                  />
                   <button onClick={() => addSku(line.sku, 1)} className="h-9 w-9 rounded-lg border border-green-500/40 font-black">
                     +
                   </button>
