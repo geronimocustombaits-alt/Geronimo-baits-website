@@ -72,6 +72,13 @@ export default function ProductionPage() {
 
   // Bait → colour dropdowns, from the Inventory tab, in sheet order
   const products = useMemo(() => [...new Set(inventory.map((i) => i.product).filter(Boolean))], [inventory]);
+  // SKU → bait name (e.g. Warvipers 4.5") from the Inventory tab
+  const productBySku = useMemo(() => {
+    const m: Record<string, string> = {};
+    inventory.forEach((i) => (m[i.sku.toUpperCase()] = i.product));
+    return m;
+  }, [inventory]);
+  const productOf = (sku: string) => productBySku[String(sku).toUpperCase()] || "";
   const colours = useMemo(() => inventory.filter((i) => i.product === product), [inventory, product]);
 
   async function addBatch(e: React.FormEvent) {
@@ -279,10 +286,12 @@ export default function ProductionPage() {
                   <div key={b.batch} className="rounded-2xl border border-yellow-500/30 bg-black p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <p className="font-black">
-                          {b.sku} {b.colour && <span className="font-bold text-gray-400">· {b.colour}</span>}
+                        <p className="text-lg font-black text-green-400">
+                          {productOf(b.sku) || b.sku}
+                          {b.colour && <span className="text-white"> · {b.colour}</span>}
                         </p>
                         <p className="text-xs text-gray-500">
+                          {productOf(b.sku) ? `${b.sku} · ` : ""}
                           {b.batch} · poured {b.datePoured} · {b.baits} baits
                           {b.plastisolMl ? ` · ${b.plastisolMl} ml` : ""}
                         </p>
@@ -366,8 +375,9 @@ export default function ProductionPage() {
                 {done.slice(0, 40).map((b) => (
                   <li key={b.batch} className="flex items-center justify-between gap-3 py-2">
                     <span>
-                      <b>{b.sku}</b> <span className="text-gray-400">{b.colour}</span>
+                      <b>{productOf(b.sku) || b.sku}</b> <span className="text-gray-400">{b.colour}</span>
                       <span className="block text-xs text-gray-500">
+                        {productOf(b.sku) ? `${b.sku} · ` : ""}
                         {b.batch} · poured {b.datePoured} · packed {b.datePacked}
                       </span>
                     </span>
