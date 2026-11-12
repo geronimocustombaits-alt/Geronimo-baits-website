@@ -24,6 +24,9 @@ type Batch = {
 type InvItem = { sku: string; product: string; colour: string };
 type Yield = { code: string; batches: number; baitsPerLitre: number };
 
+// Number boxes are plain text that keep only digits, so you can just type 29
+const digits = (v: string) => v.replace(/\D/g, "").slice(0, 6);
+
 const perPack = (sku: string) => Number((sku.match(/-(\d+)$/) || [])[1]) || 0;
 
 export default function ProductionPage() {
@@ -200,20 +203,18 @@ export default function ProductionPage() {
             </div>
             <input
               value={baits}
-              onChange={(e) => setBaits(e.target.value)}
-              type="number"
+              onChange={(e) => setBaits(digits(e.target.value))}
+              type="text"
               inputMode="numeric"
-              min={1}
               placeholder="Baits poured"
               required
               className="rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm outline-none focus:border-green-500"
             />
             <input
               value={ml}
-              onChange={(e) => setMl(e.target.value)}
-              type="number"
+              onChange={(e) => setMl(digits(e.target.value))}
+              type="text"
               inputMode="numeric"
-              min={0}
               placeholder="Plastisol ml (optional)"
               className="rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm outline-none focus:border-green-500"
             />
@@ -284,11 +285,10 @@ export default function ProductionPage() {
                       <label className="flex items-center gap-2 text-xs text-gray-400">
                         Packs
                         <input
-                          type="number"
+                          type="text"
                           inputMode="numeric"
-                          min={1}
                           value={packCounts[b.batch] ?? (suggested || "")}
-                          onChange={(e) => setPackCounts((c) => ({ ...c, [b.batch]: e.target.value }))}
+                          onChange={(e) => setPackCounts((c) => ({ ...c, [b.batch]: digits(e.target.value) }))}
                           className="w-20 rounded-lg border border-green-500/30 bg-black px-2 py-2 text-center font-black text-green-500"
                         />
                       </label>
@@ -304,12 +304,11 @@ export default function ProductionPage() {
                       <label className="flex items-center gap-2 text-xs text-gray-400">
                         Add baits
                         <input
-                          type="number"
+                          type="text"
                           inputMode="numeric"
-                          min={1}
                           placeholder="e.g. 24"
                           value={moreBaits[b.batch] ?? ""}
-                          onChange={(e) => setMoreBaits((m) => ({ ...m, [b.batch]: e.target.value }))}
+                          onChange={(e) => setMoreBaits((m) => ({ ...m, [b.batch]: digits(e.target.value) }))}
                           onKeyDown={(e) => {
                             if (e.key === "Enter") {
                               e.preventDefault();
