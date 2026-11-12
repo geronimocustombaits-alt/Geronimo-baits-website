@@ -1014,7 +1014,107 @@ function buildSalesSummary(lines, expenses, ss) {
     topSkus: Object.keys(skus).map(k => skus[k]).sort((a, b) => b.packs - a.packs).slice(0, 12),
     expenseAccounts: Object.keys(expenseBy).map(a => ({ account: a, total: round(expenseBy[a]) })).sort((a, b) => b.total - a.total),
     retailers: retailerProgress(list, ss),
+    recap: buildRecap(list, expenses, ss),
   };
+}
+
+// Monthly recap for the back office: per month, the headline numbers plus best
+// sellers by bait, colour and SKU, top customers, the biggest order, new vs
+// returning customers and packs made (PRODUCTION lines on the Stock Log).
+function buildRecap(list, expenses, ss) {
+  const round = n => Math.round(n * 100) / 100;
+  const month = d => String(d).slice(0, 7);
+  const BAIT_SKU = /^[A-Z]+-[A-Z0-9]+-\d+-\d+$/;
+
+  // SKU → colour / bait from the Inventory tab
+  const colourBySku = {};
+  const productBySku = {};
+  const productByCode = {}; // e.g. WV-45 → Warvipers 4.5", so custom colours land on the right bait
+  try {
+    getInventory(ss).items.forEach(i => {
+      colourBySku[i.sku.toUpperCase()] = i.colour;
+      productBySku[i.sku.toUpperCase()] = i.product;
+      productByCode[i.sku.toUpperCase().replace(/^([A-Z]+)-[A-Z0-9]+-(\d+)-\d+$/, "$1-$2")] = i.product;
+    });
+  } catch (e) { /* recap still works without names */ }
+
+  const firstSeen = {};
+  list.slice().sort((a, b) => String(a.date).localeCompare(String(b.date))).forEach(inv => {
+    const c = String(inv.customer || "").trim().toLowerCase();
+    if (c && !firstSeen[c]) firstSeen[c] = month(inv.date);
+  });
+
+  const out = {};
+  const get = m => (out[m] = out[m] || {
+    month: m, revenue: 0, collected: 0, expenses: 0, orders: 0, packs: 0, packsMade: 0,
+    customers: {}, newCustomers: {}, products: {}, colours: {}, skus: {}, biggest: null,
+  });
+
+  list.forEach(inv => {
+    const m = get(month(inv.date));
+    const cKey = String(inv.customer || "").trim();
+    m.revenue += inv.total;
+    m.collected += inv.total - inv.balance;
+    m.orders++;
+    if (cKey) {
+      m.customers[cKey] = (m.customers[cKey] || 0) + inv.total;
+      if (firstSeen[cKey.toLowerCase()] === m.month) m.newCustomers[cKey] = true;
+    }
+    if (!m.biggest || inv.total > m.biggest.total) m.biggest = { invoice: inv.invoice, customer: cKey, total: round(inv.total), date: inv.date };
+    inv.lines.forEach(l => {
+      const sku = String(l.sku || "").toUpperCase();
+      if (!BAIT_SKU.test(sku)) return;
+      m.packs += l.qty;
+      const code = sku.replace(/^([A-Z]+)-[A-Z0-9]+-(\d+)-\d+$/, "$1-$2");
+      const bait = productBySku[sku] || productByCode[code] || PRODUCT_NAMES[code] || code;
+      const colour = /-CC-/.test(sku) ? "Custom colour" : colourBySku[sku] || sku.split("-")[1];
+      const add = (bucket, key, extra) => {
+        bucket[key] = bucket[key] || Object.assign({ packs: 0, value: 0 }, extra);
+        bucket[key].packs += l.qty;
+        bucket[key].value += l.lineTotal;
+      };
+      add(m.products, bait, { name: bait });
+      add(m.colours, colour, { name: colour });
+      add(m.skus, sku, { sku, name: `${bait} – ${colour}` });
+    });
+  });
+
+  expenses.forEach(e => { get(month(e.date)).expenses += e.total; });
+
+  try {
+    sheetRows(logSheet(ss)).forEach(r => {
+      if (String(r[1]) !== "PRODUCTION") return;
+      const d = r[0] instanceof Date ? Utilities.formatDate(r[0], "Africa/Johannesburg", "yyyy-MM") : month(r[0]);
+      get(d).packsMade += num(r[3]);
+    });
+  } catch (e) { /* no stock log yet */ }
+
+  const top = (bucket, n) => Object.keys(bucket).map(k => bucket[k])
+    .map(x => Object.assign({}, x, { value: round(x.value) }))
+    .sort((a, b) => b.packs - a.packs || b.value - a.value).slice(0, n);
+
+  return Object.keys(out).sort().map(k => {
+    const m = out[k];
+    const customerNames = Object.keys(m.customers);
+    return {
+      month: m.month,
+      revenue: round(m.revenue),
+      collected: round(m.collected),
+      expenses: round(m.expenses),
+      profit: round(m.revenue - m.expenses),
+      orders: m.orders,
+      packs: m.packs,
+      packsMade: m.packsMade,
+      avgOrder: m.orders ? round(m.revenue / m.orders) : 0,
+      customers: customerNames.length,
+      newCustomers: Object.keys(m.newCustomers),
+      biggest: m.biggest,
+      topProducts: top(m.products, 6),
+      topColours: top(m.colours, 8),
+      topSkus: top(m.skus, 10),
+      topCustomers: customerNames.map(c => ({ customer: c, total: round(m.customers[c]) })).sort((a, b) => b.total - a.total).slice(0, 6),
+    };
+  });
 }
 
 // Rolling minimum-purchase periods for each retailer on the Retailers tab.

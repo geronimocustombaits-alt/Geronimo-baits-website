@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/admin/production", label: "PRODUCTION" },
   { href: "/admin/stock", label: "STOCK" },
   { href: "/admin/sales", label: "SALES" },
+  { href: "/admin/recap", label: "RECAP" },
   { href: "/admin/ambassadors", label: "AMBASSADORS" },
   { href: "/admin/scan", label: "📷 SCANNER" },
 ];
