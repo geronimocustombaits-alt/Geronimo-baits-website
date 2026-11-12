@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useScannerInput } from "./useScannerInput";
+import { hasCamera } from "./camera";
 
 // Pack & scan one order.
 // Scan every pack going into the box. Each scan is checked against the order:
@@ -84,6 +85,8 @@ export default function PackPanel({
   const [flash, setFlash] = useState<Flash>(null);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [handheldReady, setHandheldReady] = useState(false);
+  const skuInputRef = useRef<HTMLInputElement>(null);
   const [manualSku, setManualSku] = useState("");
   const [saving, setSaving] = useState(false);
   const [problems, setProblems] = useState<string[]>([]);
@@ -151,8 +154,13 @@ export default function PackPanel({
     });
   }
 
+  // Tapping the scan block readies the handheld scanner straight away (focus on
+  // the SKU box), then opens the camera too if this device has one.
   async function startCamera() {
     setCameraError("");
+    setHandheldReady(true);
+    skuInputRef.current?.focus();
+    if (!(await hasCamera())) return;
     try {
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
       const { BarcodeFormat, DecodeHintType } = await import("@zxing/library");
@@ -178,7 +186,7 @@ export default function PackPanel({
     } catch (error) {
       console.error("Camera failed:", error);
       setCameraError(
-        "Couldn't open the camera. Allow camera access, and use the live site (https) — phones block the camera on plain http addresses."
+        "Couldn't open the camera, but the handheld scanner is ready. To use the camera, allow camera access and use the live site (https)."
       );
     }
   }
@@ -282,7 +290,18 @@ export default function PackPanel({
           />
           {!scanning && (
             <button onClick={startCamera} className="w-full py-12 text-lg font-black text-green-500">
-              📷 TAP TO START SCANNING
+              {handheldReady ? (
+                <span className="flex flex-col items-center gap-2">
+                  <span className="relative flex h-5 w-5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-60" />
+                    <span className="relative inline-flex h-5 w-5 rounded-full bg-green-500" />
+                  </span>
+                  SCANNER READY — SCAN A PACK
+                  <span className="text-xs font-bold text-gray-400">Tap again to try the camera</span>
+                </span>
+              ) : (
+                "📷 TAP TO START SCANNING"
+              )}
             </button>
           )}
           {scanning && (
@@ -314,6 +333,7 @@ export default function PackPanel({
           }}
         >
           <input
+            ref={skuInputRef}
             data-scan-target="1"
             autoFocus
             value={manualSku}

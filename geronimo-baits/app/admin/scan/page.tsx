@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useScannerInput } from "../useScannerInput";
+import { hasCamera } from "../camera";
 
 // Phone barcode scanner for stock.
 // PRODUCTION: scan each new pack → added to In Stock.
@@ -21,6 +22,8 @@ export default function ScanPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [handheldReady, setHandheldReady] = useState(false);
+  const skuInputRef = useRef<HTMLInputElement>(null);
   const [lastScan, setLastScan] = useState("");
   const [manualSku, setManualSku] = useState("");
   const [perScan, setPerScan] = useState(1); // packs added by the next scan / ADD
@@ -91,8 +94,13 @@ export default function ScanPage() {
   useScannerInput(addScanned);
   addScannedRef.current = addScanned;
 
+  // Tapping the scan block readies the handheld scanner straight away (focus on
+  // the SKU box), then opens the camera too if this device has one.
   async function startCamera() {
     setCameraError("");
+    setHandheldReady(true);
+    skuInputRef.current?.focus();
+    if (!(await hasCamera())) return;
     try {
       const { BrowserMultiFormatReader } = await import("@zxing/browser");
       const { BarcodeFormat, DecodeHintType } = await import("@zxing/library");
@@ -119,7 +127,7 @@ export default function ScanPage() {
     } catch (error) {
       console.error("Camera failed:", error);
       setCameraError(
-        "Couldn't open the camera. Allow camera access, and use the live site (https) — phones block the camera on plain http addresses."
+        "Couldn't open the camera, but the handheld scanner is ready. To use the camera, allow camera access and use the live site (https)."
       );
     }
   }
@@ -215,8 +223,21 @@ export default function ScanPage() {
           <video ref={videoRef} className={`h-64 w-full object-cover ${scanning ? "" : "hidden"}`} muted playsInline />
           {!scanning && (
             <button onClick={startCamera} className="flex h-64 w-full flex-col items-center justify-center gap-2 font-black text-green-500">
-              <span className="text-5xl">📷</span>
-              TAP TO START SCANNING
+              {handheldReady ? (
+                <>
+                  <span className="relative flex h-5 w-5">
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-60" />
+                    <span className="relative inline-flex h-5 w-5 rounded-full bg-green-500" />
+                  </span>
+                  SCANNER READY — SCAN A PACK
+                  <span className="text-xs font-bold text-gray-400">Tap again to try the camera</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-5xl">📷</span>
+                  TAP TO START SCANNING
+                </>
+              )}
             </button>
           )}
           {scanning && (
@@ -247,6 +268,7 @@ export default function ScanPage() {
           }}
         >
           <input
+            ref={skuInputRef}
             data-scan-target="1"
             autoFocus
             value={manualSku}
