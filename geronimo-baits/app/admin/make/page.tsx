@@ -19,7 +19,10 @@ type Row = {
   baitsPerPack: number;
   baitsToPour: number;
   orders: string[];
+  curing?: number; // packs still to come out of open Production batches
+  make?: number; // packs still to pour once curing is counted
 };
+type Batch = { sku: string; baits: number; status: string; packs: number };
 type OpenOrder = { orderNumber: string; customer: string; paymentStatus: string };
 
 export default function MakePage() {
@@ -32,10 +35,29 @@ export default function MakePage() {
 
   async function load() {
     setLoading(true);
-    const data = await sheetAction<{ rows: Row[]; openOrders: OpenOrder[] }>("getMakeList");
+    const [data, prod] = await Promise.all([
+      sheetAction<{ rows: Row[]; openOrders: OpenOrder[] }>("getMakeList"),
+      sheetAction<{ batches: Batch[] }>("getBatches"),
+    ]);
     if (!data.success) setError(data.error || "Couldn't load the make list");
     else {
-      setRows(data.rows || []);
+      // Packs still curing / being packed in open batches, per SKU
+      const curingBySku: Record<string, number> = {};
+      (prod.success ? prod.batches || [] : []).forEach((b) => {
+        if (b.status === "Packed") return;
+        const per = Number((String(b.sku).match(/-(\d+)$/) || [])[1]) || 0;
+        if (!per) return;
+        const packs = Math.max(Math.floor(b.baits / per) - (b.packs || 0), 0);
+        const key = String(b.sku).toUpperCase();
+        curingBySku[key] = (curingBySku[key] || 0) + packs;
+      });
+      setRows(
+        (data.rows || []).map((r) => {
+          const curing = r.sku ? curingBySku[r.sku.toUpperCase()] || 0 : 0;
+          const make = Math.max(r.short - curing, 0);
+          return { ...r, curing, make, baitsToPour: make * (r.baitsPerPack || 0) };
+        })
+      );
       setOpenOrders(data.openOrders || []);
       setError("");
     }
@@ -50,8 +72,9 @@ export default function MakePage() {
   const covered = rows.filter((r) => r.short === 0);
   const totals = useMemo(
     () => ({
-      packs: short.reduce((s, r) => s + r.short, 0),
+      packs: short.reduce((s, r) => s + (r.make ?? r.short), 0),
       baits: short.reduce((s, r) => s + r.baitsToPour, 0),
+      curing: short.reduce((s, r) => s + Math.min(r.curing || 0, r.short), 0),
     }),
     [short]
   );
@@ -61,7 +84,7 @@ export default function MakePage() {
     short.forEach((r) => {
       const colour = colourOf(r);
       const g = groups.get(colour) || { colour, packs: 0, baits: 0, rows: [] };
-      g.packs += r.short;
+      g.packs += r.make ?? r.short;
       g.baits += r.baitsToPour;
       g.rows.push(r);
       groups.set(colour, g);
@@ -75,9 +98,10 @@ export default function MakePage() {
       <section className="mx-auto max-w-7xl">
         <AdminNav current="/admin/make" title="MAKE FOR ORDERS" subtitle="What to pour so every open order can be packed." />
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <Stat label="OPEN ORDERS" value={openOrders.length} />
           <Stat label="COLOURS SHORT" value={short.length} tone={short.length ? "yellow" : "grey"} />
+          <Stat label="PACKS CURING" value={totals.curing} tone={totals.curing ? "green" : "grey"} />
           <Stat label="PACKS TO MAKE" value={totals.packs} tone={totals.packs ? "yellow" : "grey"} />
           <Stat label="BAITS TO POUR" value={totals.baits} />
         </div>
@@ -140,7 +164,8 @@ export default function MakePage() {
                           </p>
                         </div>
                         <div className="shrink-0 text-right">
-                          <p className="text-lg font-black text-yellow-400">{r.short} packs</p>
+                          <p className="text-lg font-black text-yellow-400">{r.make ?? r.short} packs</p>
+                          {(r.curing || 0) > 0 && <p className="text-xs font-bold text-green-400">{r.curing} curing</p>}
                           <p className="text-xs font-bold text-gray-400">{r.baitsToPour ? `${r.baitsToPour} baits` : "–"}</p>
                         </div>
                       </li>
@@ -151,12 +176,13 @@ export default function MakePage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[720px] text-left text-sm">
                 <thead className="text-xs text-gray-500">
                   <tr>
                     <th className="py-2 pr-3">BAIT</th>
                     <th className="py-2 pr-3 text-right">NEEDED</th>
                     <th className="py-2 pr-3 text-right">ON SHELF</th>
+                    <th className="py-2 pr-3 text-right">CURING</th>
                     <th className="py-2 pr-3 text-right">MAKE (PACKS)</th>
                     <th className="py-2 pr-3 text-right">BAITS TO POUR</th>
                     <th className="py-2">FOR</th>
@@ -178,7 +204,10 @@ export default function MakePage() {
                       </td>
                       <td className="py-3 pr-3 text-right">{r.needed}</td>
                       <td className="py-3 pr-3 text-right text-gray-400">{r.tracked ? Math.max(r.left, 0) : "–"}</td>
-                      <td className="py-3 pr-3 text-right text-xl font-black text-yellow-400">{r.short}</td>
+                      <td className="py-3 pr-3 text-right font-bold text-green-400">{r.curing || "–"}</td>
+                      <td className={`py-3 pr-3 text-right text-xl font-black ${(r.make ?? r.short) ? "text-yellow-400" : "text-green-500"}`}>
+                        {(r.make ?? r.short) || "✔"}
+                      </td>
                       <td className="py-3 pr-3 text-right font-bold">{r.baitsToPour || "–"}</td>
                       <td className="py-3 text-xs text-gray-400">
                         {r.orders.map((o) => (
