@@ -10,6 +10,7 @@ const ACTIONS: Record<string, string[]> = {
   getBatches: [],
   addBatch: ["sku", "baits", "plastisolMl", "notes"],
   updateBatch: ["batch", "status", "packs", "addBaits"],
+  deleteBatch: ["batch"],
   getSales: [],
   refreshSales: [],
   getAmbassadors: [],

@@ -158,6 +158,22 @@ export default function ProductionPage() {
     load();
   }
 
+  async function removeBatch(b: Batch) {
+    const question =
+      `Remove batch ${b.batch} (${b.sku}, ${b.baits} baits)?` +
+      (b.packs ? ` The ${b.packs} pack(s) already scanned in stay in stock.` : "");
+    if (!window.confirm(question)) return;
+    setBusy(b.batch);
+    const data = await sheetAction("deleteBatch", { batch: b.batch });
+    setBusy("");
+    if (!data.success) {
+      setMessage({ type: "error", text: data.error || "Couldn't remove the batch" });
+      return;
+    }
+    setMessage({ type: "ok", text: `Batch ${b.batch} removed.` });
+    load();
+  }
+
   const active = batches.filter((b) => b.status !== "Packed");
   const done = batches.filter((b) => b.status === "Packed");
 
@@ -324,6 +340,13 @@ export default function ProductionPage() {
                         className="rounded-xl border border-green-500 px-4 py-2 text-xs font-black text-green-500 hover:bg-green-500 hover:text-black disabled:opacity-50"
                       >
                         ＋ ADD TO BATCH
+                      </button>
+                      <button
+                        disabled={busy === b.batch}
+                        onClick={() => removeBatch(b)}
+                        className="ml-auto rounded-xl border border-red-500/50 px-4 py-2 text-xs font-black text-red-400 hover:bg-red-500 hover:text-black disabled:opacity-50"
+                      >
+                        🗑 REMOVE
                       </button>
                     </div>
                   </div>

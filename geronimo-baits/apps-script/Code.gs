@@ -75,6 +75,7 @@ function doPost(e) {
       getBatches: () => getBatches(ss),
       addBatch: () => addBatch(ss, data),
       updateBatch: () => updateBatch(ss, data),
+      deleteBatch: () => deleteBatch(ss, data),
       getSales: () => getSales(),
       refreshSales: () => { refreshSalesData(); return getSales(); },
       getAmbassadors: () => getAmbassadors(ss),
@@ -828,6 +829,17 @@ function addBatch(ss, data) {
     num(data.plastisolMl) || "", "Curing", "", "", String(data.notes || "").slice(0, 200),
   ]);
   return { success: true, batch, known: Boolean(item) };
+}
+
+// Remove a batch row (e.g. logged by mistake). Stock isn't touched: packs
+// already scanned in from it stay in stock.
+function deleteBatch(ss, data) {
+  const sh = ensureSheet(ss, PRODUCTION_SHEET, ["BATCH"]);
+  const rows = sheetRows(sh);
+  const idx = rows.findIndex(r => String(r[0]) === String(data.batch));
+  if (idx < 0) return { success: false, error: "Batch not found" };
+  sh.deleteRow(idx + 2);
+  return { success: true };
 }
 
 function updateBatch(ss, data) {
