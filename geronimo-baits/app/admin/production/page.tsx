@@ -183,6 +183,17 @@ export default function ProductionPage() {
 
   const active = batches.filter((b) => b.status !== "Packed");
   const done = batches.filter((b) => b.status === "Packed");
+  // Still to come out of open batches: baits not yet packed, and the packs they'll make
+  const curing = active.reduce(
+    (t, b) => {
+      const per = perPack(b.sku);
+      return {
+        baits: t.baits + Math.max(b.baits - b.packs * per, 0),
+        packs: t.packs + (per ? Math.max(Math.floor(b.baits / per) - b.packs, 0) : 0),
+      };
+    },
+    { baits: 0, packs: 0 }
+  );
 
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
@@ -271,7 +282,19 @@ export default function ProductionPage() {
         )}
 
         <div className="mt-8 rounded-3xl border border-green-500/20 bg-black/70 p-4 md:p-6">
-          <h2 className="mb-4 text-xl font-black">IN PROGRESS ({active.length})</h2>
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <h2 className="text-xl font-black">IN PROGRESS ({active.length})</h2>
+            <div className="flex gap-3">
+              <div className="rounded-2xl border border-yellow-500/30 px-4 py-2 text-right">
+                <p className="text-[10px] font-bold text-gray-400">BAITS CURING</p>
+                <p className="text-2xl font-black text-yellow-400">{curing.baits}</p>
+              </div>
+              <div className="rounded-2xl border border-green-500/30 px-4 py-2 text-right">
+                <p className="text-[10px] font-bold text-gray-400">PACKS TO COME</p>
+                <p className="text-2xl font-black text-green-400">{curing.packs}</p>
+              </div>
+            </div>
+          </div>
           {loading ? (
             <p className="p-6 text-center text-gray-400">Loading batches...</p>
           ) : active.length === 0 ? (
