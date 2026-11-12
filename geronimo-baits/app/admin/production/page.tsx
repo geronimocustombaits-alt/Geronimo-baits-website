@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AdminNav from "../AdminNav";
 import { sheetAction } from "@/lib/sheetAction";
 
@@ -19,6 +19,7 @@ type Batch = {
   datePacked: string;
   notes: string;
 };
+type InvItem = { sku: string; product: string; colour: string };
 type Yield = { code: string; batches: number; baitsPerLitre: number };
 
 const perPack = (sku: string) => Number((sku.match(/-(\d+)$/) || [])[1]) || 0;
@@ -31,6 +32,8 @@ export default function ProductionPage() {
   const [busy, setBusy] = useState("");
   const [packCounts, setPackCounts] = useState<Record<string, string>>({});
 
+  const [inventory, setInventory] = useState<InvItem[]>([]);
+  const [product, setProduct] = useState("");
   const [sku, setSku] = useState("");
   const [baits, setBaits] = useState("");
   const [ml, setMl] = useState("");
@@ -46,9 +49,24 @@ export default function ProductionPage() {
     setLoading(false);
   }
 
+  async function loadInventory() {
+    try {
+      const response = await fetch("/api/admin/inventory", { cache: "no-store" });
+      const data = await response.json();
+      if (data.success && Array.isArray(data.items)) setInventory(data.items);
+    } catch {
+      // the batch list still works; the dropdowns just stay empty
+    }
+  }
+
   useEffect(() => {
     load();
+    loadInventory();
   }, []);
+
+  // Bait → colour dropdowns, from the Inventory tab, in sheet order
+  const products = useMemo(() => [...new Set(inventory.map((i) => i.product).filter(Boolean))], [inventory]);
+  const colours = useMemo(() => inventory.filter((i) => i.product === product), [inventory, product]);
 
   async function addBatch(e: React.FormEvent) {
     e.preventDefault();
@@ -71,6 +89,7 @@ export default function ProductionPage() {
         ? `Batch ${data.batch} logged — curing.`
         : `Batch ${data.batch} logged, but ${sku.toUpperCase()} isn't on the Inventory tab, so packing it won't add stock.`,
     });
+    setProduct("");
     setSku("");
     setBaits("");
     setMl("");
@@ -116,13 +135,38 @@ export default function ProductionPage() {
         <form onSubmit={addBatch} className="rounded-3xl border border-green-500/20 bg-black/70 p-4 md:p-6">
           <h2 className="mb-4 text-xl font-black">LOG A POUR</h2>
           <div className="grid gap-3 md:grid-cols-5">
-            <input
-              value={sku}
-              onChange={(e) => setSku(e.target.value)}
-              placeholder="SKU e.g. WV-BWM-45-12"
-              required
-              className="rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm uppercase outline-none focus:border-green-500 md:col-span-2"
-            />
+            <div className="grid grid-cols-2 gap-3 md:col-span-2">
+              <select
+                value={product}
+                onChange={(e) => {
+                  setProduct(e.target.value);
+                  setSku("");
+                }}
+                required
+                className="rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm outline-none focus:border-green-500"
+              >
+                <option value="">{inventory.length ? "Bait…" : "Loading baits…"}</option>
+                {products.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                required
+                disabled={!product}
+                className="rounded-xl border border-green-500/30 bg-black px-4 py-3 text-sm outline-none focus:border-green-500 disabled:opacity-50"
+              >
+                <option value="">Colour…</option>
+                {colours.map((i) => (
+                  <option key={i.sku} value={i.sku}>
+                    {i.colour || i.sku}
+                  </option>
+                ))}
+              </select>
+            </div>
             <input
               value={baits}
               onChange={(e) => setBaits(e.target.value)}
