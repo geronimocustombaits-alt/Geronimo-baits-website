@@ -409,6 +409,12 @@ export default function ProductionPage() {
                       >
                         {busy === b.batch ? "SAVING..." : "📦 MARK PACKED"}
                       </button>
+                      <a
+                        href={`/admin/labels?sku=${encodeURIComponent(b.sku)}&qty=${Math.max(suggested - b.packs, 1)}`}
+                        className="rounded-xl border border-green-500 px-4 py-2 text-xs font-black text-green-500 hover:bg-green-500 hover:text-black"
+                      >
+                        🏷 PRINT {Math.max(suggested - b.packs, 1)} LABEL(S)
+                      </a>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
                       <label className="flex items-center gap-2 text-xs text-gray-400">
