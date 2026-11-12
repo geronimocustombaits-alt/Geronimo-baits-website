@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import AdminNav from "../AdminNav";
 import { sheetAction } from "@/lib/sheetAction";
 
-// Production batches: log a pour, it sits in Curing, then mark it Packed with
-// the number of packs — that adds them to stock (once).
+// Production batches: log a pour, it sits in Curing. Packs scanned in with the
+// scanner's Production mode come off the oldest open batch of that colour
+// (PACKS = packed so far) and the batch closes itself when it runs out.
+// "Packed" here adds only the packs that weren't scanned.
 
 type Batch = {
   batch: string;
@@ -106,7 +108,12 @@ export default function ProductionPage() {
         setMessage({ type: "error", text: "Enter how many packs this batch made." });
         return;
       }
-      if (!window.confirm(`Mark ${b.batch} packed and add ${packs} pack(s) of ${b.sku} to stock?`)) return;
+      const extra = Math.max(packs - b.packs, 0);
+      const question = extra
+        ? `Mark ${b.batch} packed and add ${extra} more pack(s) of ${b.sku} to stock?` +
+          (b.packs ? ` (${b.packs} were already scanned in.)` : "")
+        : `Mark ${b.batch} packed? Its ${b.packs} pack(s) were already scanned into stock, so nothing more is added.`;
+      if (!window.confirm(question)) return;
     }
     setBusy(b.batch);
     const data = await sheetAction<{ packs?: number; addedToStock?: boolean }>("updateBatch", { batch: b.batch, status, packs });
@@ -118,7 +125,7 @@ export default function ProductionPage() {
     if (status === "Packed") {
       setMessage({
         type: "ok",
-        text: data.addedToStock ? `${data.packs} pack(s) added to stock.` : "Marked packed. (Stock for this batch was already added.)",
+        text: data.addedToStock ? `${data.packs} pack(s) added to stock.` : "Marked packed. (Its packs were already scanned into stock.)",
       });
     }
     load();
@@ -200,7 +207,8 @@ export default function ProductionPage() {
             className="mt-3 w-full rounded-xl border border-green-500/20 bg-black px-4 py-2 text-sm outline-none focus:border-green-500"
           />
           <p className="mt-2 text-xs text-gray-500">
-            Packing a batch here adds it to stock — don&apos;t also scan those packs in with the scanner&apos;s Production mode.
+            Scan packs in with the scanner&apos;s Production mode as you bag them — they come off the oldest open batch of that
+            colour, and the batch closes itself when its baits run out.
           </p>
         </form>
 
@@ -223,7 +231,9 @@ export default function ProductionPage() {
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
               {active.map((b) => {
-                const suggested = perPack(b.sku) ? Math.floor(b.baits / perPack(b.sku)) : 0;
+                const per = perPack(b.sku);
+                const suggested = per ? Math.floor(b.baits / per) : 0;
+                const baitsLeft = Math.max(b.baits - b.packs * per, 0);
                 return (
                   <div key={b.batch} className="rounded-2xl border border-yellow-500/30 bg-black p-4">
                     <div className="flex items-start justify-between gap-3">
@@ -236,6 +246,13 @@ export default function ProductionPage() {
                           {b.plastisolMl ? ` · ${b.plastisolMl} ml` : ""}
                         </p>
                         {b.notes && <p className="mt-1 text-xs text-gray-400">{b.notes}</p>}
+                        {per > 0 && (
+                          <p className="mt-2 text-sm font-bold">
+                            <span className="text-green-400">{b.packs}</span>
+                            <span className="text-gray-400"> of {suggested} packs packed · </span>
+                            <span className="text-yellow-400">{baitsLeft} baits left</span>
+                          </p>
+                        )}
                       </div>
                       <span className="rounded-full bg-yellow-500/15 px-3 py-1 text-xs font-black text-yellow-400">{b.status.toUpperCase()}</span>
                     </div>
@@ -256,7 +273,7 @@ export default function ProductionPage() {
                         onClick={() => setStatus(b, "Packed")}
                         className="rounded-xl bg-green-500 px-4 py-2 text-xs font-black text-black hover:bg-green-400 disabled:opacity-50"
                       >
-                        {busy === b.batch ? "SAVING..." : "📦 PACKED → ADD TO STOCK"}
+                        {busy === b.batch ? "SAVING..." : "📦 MARK PACKED"}
                       </button>
                     </div>
                   </div>

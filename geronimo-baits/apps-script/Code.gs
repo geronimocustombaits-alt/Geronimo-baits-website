@@ -260,7 +260,8 @@ function reverseSale(ss, reference, source) {
     });
 }
 
-// Phone scanner. mode "production": add to In Stock.
+// Phone scanner. mode "production": add to In Stock, and take the baits off the
+//                                   oldest open Production batch of that SKU.
 //                mode "stocktake":  set Left (In Stock − Sold) to the count.
 function stockIn(ss, data) {
   const mode = data.mode === "stocktake" ? "stocktake" : "production";
@@ -273,6 +274,7 @@ function stockIn(ss, data) {
   const inv = ss.getSheetByName(INVENTORY_SHEET);
   const index = inventoryIndex(inv);
   const unknown = [];
+  const fromBatches = [];
   let updated = 0;
 
   (data.items || []).forEach(item => {
@@ -295,12 +297,44 @@ function stockIn(ss, data) {
       log.appendRow([new Date(), "STOCKTAKE", sku, qty - oldLeft, reference, "Scanner", `Counted ${qty} (was ${oldLeft})`]);
     } else {
       inStockRange.setValue(inStock + qty);
-      log.appendRow([new Date(), "PRODUCTION", sku, qty, reference, "Scanner", ""]);
+      // Packs coming from "Packed" on the Production page already belong to that batch
+      const used = data.fromBatch ? [] : takeFromBatches(ss, sku, qty);
+      used.forEach(u => fromBatches.push(u));
+      const note = used.map(u => `${u.batch}: ${u.packs} pack(s)${u.closed ? " - batch done" : ""}`).join("; ");
+      log.appendRow([new Date(), "PRODUCTION", sku, qty, reference, data.fromBatch ? "Production page" : "Scanner", note]);
     }
     updated++;
   });
 
-  return { success: true, updated, unknown };
+  return { success: true, updated, unknown, fromBatches };
+}
+
+// Scanned production packs come out of the open batches for that SKU, oldest
+// first. PACKS (col H) counts packs packed so far; once fewer baits are left
+// than make a full pack, the batch is marked Packed. Packs beyond what the open
+// batches hold still go into stock, they just aren't linked to a batch.
+function takeFromBatches(ss, sku, packs) {
+  const per = packSize(sku);
+  const sh = ss.getSheetByName(PRODUCTION_SHEET);
+  if (!sh || !(per > 0) || !(packs > 0)) return [];
+  const rows = sheetRows(sh);
+  const used = [];
+  let toPlace = packs;
+  rows.forEach((r, idx) => {
+    if (toPlace <= 0) return;
+    if (String(r[2]).trim().toUpperCase() !== String(sku).toUpperCase()) return;
+    if (String(r[6]) === "Packed") return;
+    const done = num(r[7]);
+    const room = Math.floor(num(r[4]) / per) - done; // packs this batch can still make
+    if (room <= 0) return;
+    const take = Math.min(room, toPlace);
+    toPlace -= take;
+    const closed = take === room;
+    const row = idx + 2;
+    sh.getRange(row, 7, 1, 3).setValues([[closed ? "Packed" : "Packing", done + take, closed ? new Date() : ""]]);
+    used.push({ batch: String(r[0]), packs: take, closed });
+  });
+  return used;
 }
 
 // ───────────────────────────── Zoho Books link ─────────────────────────────
@@ -742,8 +776,9 @@ function getMakeList(ss) {
 }
 
 // ───────────── 2. Production batches: pour → cure → pack ─────────────
-// Marking a batch Packed adds its packs to In Stock (once), so don't also scan
-// those packs in with the scanner's Production mode.
+// Scanning packs in with the scanner's Production mode takes them off the oldest
+// open batch of that SKU (see takeFromBatches). Marking a batch Packed here only
+// adds the packs that weren't scanned already.
 
 function getBatches(ss) {
   const sh = ensureSheet(ss, PRODUCTION_SHEET, ["BATCH", "DATE POURED", "SKU", "COLOUR", "BAITS POURED", "PLASTISOL ML", "STATUS", "PACKS", "DATE PACKED", "NOTES"]);
@@ -801,7 +836,7 @@ function updateBatch(ss, data) {
   const idx = rows.findIndex(r => String(r[0]) === String(data.batch));
   if (idx < 0) return { success: false, error: "Batch not found" };
   const row = idx + 2;
-  const status = ["Poured", "Curing", "Packed"].includes(data.status) ? data.status : "Curing";
+  const status = ["Poured", "Curing", "Packing", "Packed"].includes(data.status) ? data.status : "Curing";
 
   if (status === "Packed") {
     const sku = String(rows[idx][2]);
@@ -809,9 +844,16 @@ function updateBatch(ss, data) {
     const per = packSize(sku);
     const packs = Math.floor(num(data.packs)) || (per ? Math.floor(baits / per) : 0);
     if (!(packs > 0)) return { success: false, error: "How many packs did this batch make?" };
-    const result = stockIn(ss, { mode: "production", reference: `BATCH ${data.batch}`, items: [{ sku, qty: packs }] });
-    sh.getRange(row, 7, 1, 3).setValues([["Packed", packs, new Date()]]);
-    return { success: true, packs, addedToStock: (result.updated || 0) > 0, unknown: result.unknown || [] };
+    const scanned = num(rows[idx][7]); // packs already scanned in from this batch
+    const extra = Math.max(packs - scanned, 0);
+    let added = 0;
+    if (extra > 0) {
+      const result = stockIn(ss, { mode: "production", fromBatch: true, reference: `BATCH ${data.batch}`, items: [{ sku, qty: extra }] });
+      if (!(result.updated > 0) && !result.skipped) return { success: false, error: `${sku} isn't on the Inventory tab` };
+      added = result.skipped ? 0 : extra;
+    }
+    sh.getRange(row, 7, 1, 3).setValues([["Packed", Math.max(packs, scanned), new Date()]]);
+    return { success: true, packs: added, scanned, addedToStock: added > 0 };
   }
   sh.getRange(row, 7).setValue(status);
   return { success: true };
