@@ -32,6 +32,7 @@ export default function MakePage() {
   const [error, setError] = useState("");
   const [showCovered, setShowCovered] = useState(false);
   const [view, setView] = useState<"bait" | "colour">("bait");
+  const [curingTotal, setCuringTotal] = useState(0); // all packs to come from open batches
 
   async function load() {
     setLoading(true);
@@ -51,6 +52,7 @@ export default function MakePage() {
         const key = String(b.sku).toUpperCase();
         curingBySku[key] = (curingBySku[key] || 0) + packs;
       });
+      setCuringTotal(Object.values(curingBySku).reduce((t, n) => t + n, 0));
       setRows(
         (data.rows || []).map((r) => {
           const curing = r.sku ? curingBySku[r.sku.toUpperCase()] || 0 : 0;
@@ -101,7 +103,12 @@ export default function MakePage() {
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
           <Stat label="OPEN ORDERS" value={openOrders.length} />
           <Stat label="COLOURS SHORT" value={short.length} tone={short.length ? "yellow" : "grey"} />
-          <Stat label="PACKS CURING" value={totals.curing} tone={totals.curing ? "green" : "grey"} />
+          <Stat
+            label="PACKS CURING"
+            value={curingTotal}
+            tone={curingTotal ? "green" : "grey"}
+            note={curingTotal ? `${totals.curing} of them for open orders` : undefined}
+          />
           <Stat label="PACKS TO MAKE" value={totals.packs} tone={totals.packs ? "yellow" : "grey"} />
           <Stat label="BAITS TO POUR" value={totals.baits} />
         </div>
@@ -257,12 +264,23 @@ function colourOf(r: Row) {
   return parts.length > 1 ? parts[parts.length - 1].trim() : r.label;
 }
 
-function Stat({ label, value, tone = "green" }: { label: string; value: string | number; tone?: "green" | "yellow" | "grey" }) {
+function Stat({
+  label,
+  value,
+  tone = "green",
+  note,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "green" | "yellow" | "grey";
+  note?: string;
+}) {
   const colour = { green: "text-green-500", yellow: "text-yellow-400", grey: "text-gray-500" }[tone];
   return (
     <div className="rounded-3xl border border-green-500/20 bg-black/70 p-5">
       <p className="text-xs font-bold text-gray-400">{label}</p>
       <h2 className={`mt-3 text-2xl font-black md:text-3xl ${colour}`}>{value}</h2>
+      {note && <p className="mt-1 text-xs font-bold text-gray-500">{note}</p>}
     </div>
   );
 }
