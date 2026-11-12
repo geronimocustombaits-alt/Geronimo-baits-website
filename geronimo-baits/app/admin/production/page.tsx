@@ -27,6 +27,22 @@ type Yield = { code: string; batches: number; baitsPerLitre: number };
 // Number boxes are plain text that keep only digits, so you can just type 29
 const digits = (v: string) => v.replace(/\D/g, "").slice(0, 6);
 
+// Curing: baits need 24 hours before they can be packed
+const CURE_HOURS = 24;
+// Batch IDs carry the pour time in South African time, e.g. B261112-1152-BM = 12 Nov 2026 11:52
+function pouredAt(b: { batch: string; datePoured: string }) {
+  const m = b.batch.match(/^B(\d{2})(\d{2})(\d{2})-(\d{2})(\d{2})/);
+  if (m) return Date.UTC(2000 + +m[1], +m[2] - 1, +m[3], +m[4] - 2, +m[5]); // SAST = UTC+2
+  const d = Date.parse(`${b.datePoured}T00:00:00+02:00`);
+  return Number.isNaN(d) ? 0 : d;
+}
+function timeLeft(ms: number) {
+  const mins = Math.ceil(ms / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h ? `${h}h ${m}m` : `${m}m`;
+}
+
 const perPack = (sku: string) => Number((sku.match(/-(\d+)$/) || [])[1]) || 0;
 
 export default function ProductionPage() {
@@ -37,6 +53,13 @@ export default function ProductionPage() {
   const [busy, setBusy] = useState("");
   const [packCounts, setPackCounts] = useState<Record<string, string>>({});
   const [moreBaits, setMoreBaits] = useState<Record<string, string>>({});
+  const [now, setNow] = useState(() => Date.now());
+
+  // Tick the curing timers every 30 seconds
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(timer);
+  }, []);
 
   const [inventory, setInventory] = useState<InvItem[]>([]);
   const [product, setProduct] = useState("");
@@ -305,8 +328,21 @@ export default function ProductionPage() {
                 const per = perPack(b.sku);
                 const suggested = per ? Math.floor(b.baits / per) : 0;
                 const baitsLeft = Math.max(b.baits - b.packs * per, 0);
+                const start = pouredAt(b);
+                const readyAt = start + CURE_HOURS * 3600000;
+                const ready = !start || now >= readyAt || b.status === "Packing";
+                const cured = start ? Math.min(Math.max((now - start) / (CURE_HOURS * 3600000), 0), 1) : 1;
+                const badge =
+                  b.status === "Packing"
+                    ? { text: "PACKING", cls: "bg-yellow-500/15 text-yellow-400" }
+                    : ready
+                    ? { text: "✔ READY TO PACK", cls: "bg-green-500 text-black" }
+                    : { text: "CURING", cls: "bg-yellow-500/15 text-yellow-400" };
                 return (
-                  <div key={b.batch} className="rounded-2xl border border-yellow-500/30 bg-black p-4">
+                  <div
+                    key={b.batch}
+                    className={`rounded-2xl border bg-black p-4 ${ready ? "border-green-500/60" : "border-yellow-500/30"}`}
+                  >
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <p className="text-lg font-black text-green-400">
@@ -327,8 +363,34 @@ export default function ProductionPage() {
                           </p>
                         )}
                       </div>
-                      <span className="rounded-full bg-yellow-500/15 px-3 py-1 text-xs font-black text-yellow-400">{b.status.toUpperCase()}</span>
+                      <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-black ${badge.cls}`}>{badge.text}</span>
                     </div>
+                    {start > 0 && b.status !== "Packing" && (
+                      <div className="mt-3">
+                        <div className="mb-1 flex justify-between text-xs font-bold">
+                          {ready ? (
+                            <span className="text-green-400">Cured — you can start packing</span>
+                          ) : (
+                            <span className="text-yellow-400">⏱ Ready in {timeLeft(readyAt - now)}</span>
+                          )}
+                          <span className="text-gray-500">
+                            ready{" "}
+                            {new Date(readyAt).toLocaleString("en-ZA", {
+                              weekday: "short",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              timeZone: "Africa/Johannesburg",
+                            })}
+                          </span>
+                        </div>
+                        <div className="h-2 overflow-hidden rounded-full bg-white/5">
+                          <div
+                            className={`h-full rounded-full ${ready ? "bg-green-500" : "bg-yellow-400"}`}
+                            style={{ width: `${Math.round(cured * 100)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
                       <label className="flex items-center gap-2 text-xs text-gray-400">
                         Packs
