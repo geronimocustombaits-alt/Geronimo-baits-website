@@ -9,7 +9,7 @@ const ACTIONS: Record<string, string[]> = {
   getMakeList: [],
   getBatches: [],
   addBatch: ["sku", "baits", "plastisolMl", "notes"],
-  updateBatch: ["batch", "status", "packs"],
+  updateBatch: ["batch", "status", "packs", "addBaits"],
   getSales: [],
   refreshSales: [],
   getAmbassadors: [],

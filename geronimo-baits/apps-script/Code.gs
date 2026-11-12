@@ -836,6 +836,17 @@ function updateBatch(ss, data) {
   const idx = rows.findIndex(r => String(r[0]) === String(data.batch));
   if (idx < 0) return { success: false, error: "Batch not found" };
   const row = idx + 2;
+
+  // Top up an open batch with more baits (e.g. a second pour of the same colour)
+  if (data.addBaits) {
+    const more = Math.floor(num(data.addBaits));
+    if (!(more > 0)) return { success: false, error: "Enter how many baits to add" };
+    if (String(rows[idx][6]) === "Packed") return { success: false, error: "That batch is already packed" };
+    const baits = num(rows[idx][4]) + more;
+    sh.getRange(row, 5).setValue(baits);
+    return { success: true, baits };
+  }
+
   const status = ["Poured", "Curing", "Packing", "Packed"].includes(data.status) ? data.status : "Curing";
 
   if (status === "Packed") {

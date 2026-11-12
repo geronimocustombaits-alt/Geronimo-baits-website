@@ -33,6 +33,7 @@ export default function ProductionPage() {
   const [message, setMessage] = useState<{ type: "ok" | "error"; text: string } | null>(null);
   const [busy, setBusy] = useState("");
   const [packCounts, setPackCounts] = useState<Record<string, string>>({});
+  const [moreBaits, setMoreBaits] = useState<Record<string, string>>({});
 
   const [inventory, setInventory] = useState<InvItem[]>([]);
   const [product, setProduct] = useState("");
@@ -128,6 +129,29 @@ export default function ProductionPage() {
         text: data.addedToStock ? `${data.packs} pack(s) added to stock.` : "Marked packed. (Its packs were already scanned into stock.)",
       });
     }
+    load();
+  }
+
+  async function addBaits(b: Batch) {
+    const more = Math.floor(Number(moreBaits[b.batch]) || 0);
+    if (!(more > 0)) {
+      setMessage({ type: "error", text: "Enter how many baits to add." });
+      return;
+    }
+    setBusy(b.batch);
+    const data = await sheetAction<{ baits?: number }>("updateBatch", { batch: b.batch, addBaits: more });
+    setBusy("");
+    if (!data.success) {
+      setMessage({ type: "error", text: data.error || "Couldn't add the baits" });
+      return;
+    }
+    setMessage({ type: "ok", text: `Added ${more} baits to ${b.batch} — now ${data.baits} baits.` });
+    setMoreBaits((m) => ({ ...m, [b.batch]: "" }));
+    setPackCounts((c) => {
+      const next = { ...c };
+      delete next[b.batch];
+      return next;
+    });
     load();
   }
 
@@ -274,6 +298,33 @@ export default function ProductionPage() {
                         className="rounded-xl bg-green-500 px-4 py-2 text-xs font-black text-black hover:bg-green-400 disabled:opacity-50"
                       >
                         {busy === b.batch ? "SAVING..." : "📦 MARK PACKED"}
+                      </button>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-white/5 pt-3">
+                      <label className="flex items-center gap-2 text-xs text-gray-400">
+                        Add baits
+                        <input
+                          type="number"
+                          inputMode="numeric"
+                          min={1}
+                          placeholder="e.g. 24"
+                          value={moreBaits[b.batch] ?? ""}
+                          onChange={(e) => setMoreBaits((m) => ({ ...m, [b.batch]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addBaits(b);
+                            }
+                          }}
+                          className="w-24 rounded-lg border border-green-500/30 bg-black px-2 py-2 text-center font-black text-white"
+                        />
+                      </label>
+                      <button
+                        disabled={busy === b.batch}
+                        onClick={() => addBaits(b)}
+                        className="rounded-xl border border-green-500 px-4 py-2 text-xs font-black text-green-500 hover:bg-green-500 hover:text-black disabled:opacity-50"
+                      >
+                        ＋ ADD TO BATCH
                       </button>
                     </div>
                   </div>
