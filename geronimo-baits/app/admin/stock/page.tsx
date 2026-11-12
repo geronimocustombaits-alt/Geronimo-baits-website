@@ -185,7 +185,7 @@ export default function StockPage() {
                 return (
                   <div key={product} className="rounded-2xl border border-green-500/20 bg-black p-4">
                     <div className="mb-3 flex items-baseline justify-between gap-3">
-                      <h3 className="font-black">{product}</h3>
+                      <h3 className="text-xl font-black text-green-400 md:text-2xl">{product}</h3>
                       <span className="text-xs font-bold text-gray-500">{total} packs</span>
                     </div>
                     <ul className="divide-y divide-white/5">
