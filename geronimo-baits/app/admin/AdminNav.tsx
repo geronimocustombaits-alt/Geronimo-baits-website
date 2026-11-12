@@ -10,7 +10,6 @@ const LINKS = [
   { href: "/admin/sales", label: "SALES" },
   { href: "/admin/recap", label: "RECAP" },
   { href: "/admin/ambassadors", label: "AMBASSADORS" },
-  { href: "/admin/labels", label: "🏷 LABELS" },
   { href: "/admin/scan", label: "📷 SCANNER" },
 ];
 
