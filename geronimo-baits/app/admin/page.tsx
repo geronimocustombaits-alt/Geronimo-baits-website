@@ -32,18 +32,35 @@ const STATUS_BUTTONS = ["Processing", "Packed", "Shipped", "Completed"];
 // Once an order is packed its packs are already off the shelf, so no stock marks
 const STOCK_ALREADY_OFF = ["packed", "shipped", "completed", "cancelled"];
 
-// "6x Warviper 4.5" Junebug | WV-BM-45-12" → ✓ if that many packs are on the shelf
-function StockMark({ line, leftBySku }: { line: string; leftBySku: Record<string, number> | null }) {
+// "6x Warviper 4.5" Junebug | WV-BM-45-12" → quantity + SKU
+function parseLine(line: string) {
   const qty = parseInt(line, 10);
   const sku = line.includes("|") ? line.split("|").pop()!.trim().toUpperCase() : "";
-  if (!leftBySku || !sku || !(qty > 0) || /-CC-/.test(sku)) return null;
-  const left = Math.max(leftBySku[sku] ?? 0, 0);
-  if (left < qty) return null;
-  return (
-    <span className="text-lg font-black leading-none text-green-500" title={`${left} on the shelf`}>
-      ✓
-    </span>
+  return { qty: qty > 0 ? qty : 0, sku };
+}
+
+// First in, first out: shelf stock goes to the oldest open orders first. A line
+// gets a ✓ when the stock left after older orders still covers it. Returns
+// "orderNumber|lineIndex" keys for the lines that are covered.
+function fifoCovered(orders: Order[], leftBySku: Record<string, number> | null) {
+  const covered = new Set<string>();
+  if (!leftBySku) return covered;
+  const left: Record<string, number> = {};
+  Object.keys(leftBySku).forEach((k) => (left[k] = Math.max(leftBySku[k], 0)));
+  const open = orders
+    .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void"))
+    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.orderNumber).localeCompare(String(b.orderNumber)));
+  open.forEach((o) =>
+    String(o.items || "")
+      .split("\n")
+      .forEach((line, i) => {
+        const { qty, sku } = parseLine(line);
+        if (!qty || !sku || /-CC-/.test(sku) || !(sku in left)) return;
+        if (left[sku] >= qty) covered.add(`${o.orderNumber}|${i}`);
+        left[sku] = Math.max(left[sku] - qty, 0); // the older order holds these packs either way
+      })
   );
+  return covered;
 }
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -255,6 +272,8 @@ export default function AdminPage() {
     };
   }, [orders]);
 
+  const covered = useMemo(() => fifoCovered(orders, leftBySku), [orders, leftBySku]);
+
   const visibleOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orders
@@ -430,8 +449,10 @@ export default function AdminPage() {
                           {order.items.split("\n").map((line, i) => (
                             <li key={i} className="flex flex-wrap items-baseline gap-x-2">
                               <span className="whitespace-pre-wrap">{line}</span>
-                              {!STOCK_ALREADY_OFF.includes(lower(currentStatus)) && (
-                                <StockMark line={line} leftBySku={leftBySku} />
+                              {covered.has(`${order.orderNumber}|${i}`) && (
+                                <span className="text-lg font-black leading-none text-green-500" title="In stock for this order">
+                                  ✓
+                                </span>
                               )}
                             </li>
                           ))}
