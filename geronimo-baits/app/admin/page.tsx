@@ -29,6 +29,28 @@ type Order = {
 type Filter = "all" | "awaiting" | "topack" | "shipped" | "completed" | "problems";
 
 const STATUS_BUTTONS = ["Processing", "Packed", "Shipped", "Completed"];
+// Once an order is packed its packs are already off the shelf, so no stock marks
+const STOCK_ALREADY_OFF = ["packed", "shipped", "completed", "cancelled"];
+
+// "6x Warviper 4.5" Junebug | WV-BM-45-12" → ✓ if that many packs are on the shelf
+function StockMark({ line, leftBySku }: { line: string; leftBySku: Record<string, number> | null }) {
+  const qty = parseInt(line, 10);
+  const sku = line.includes("|") ? line.split("|").pop()!.trim().toUpperCase() : "";
+  if (!leftBySku || !sku || !(qty > 0) || /-CC-/.test(sku)) return null;
+  if (!(sku in leftBySku)) return <span className="text-xs font-bold text-gray-500">not tracked</span>;
+  const left = Math.max(leftBySku[sku], 0);
+  if (left >= qty)
+    return (
+      <span className="text-lg font-black leading-none text-green-500" title={`${left} on the shelf`}>
+        ✓
+      </span>
+    );
+  return (
+    <span className={`text-xs font-bold ${left > 0 ? "text-yellow-400" : "text-red-400"}`}>
+      {left > 0 ? `only ${left} on shelf` : "none on shelf"}
+    </span>
+  );
+}
 
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "ALL" },
@@ -132,6 +154,20 @@ export default function AdminPage() {
   const [filter, setFilter] = useState<Filter>("all");
   const [packing, setPacking] = useState<Order | null>(null);
   const [ambassadorCodes, setAmbassadorCodes] = useState<{ code: string; name: string }[]>([]);
+  const [leftBySku, setLeftBySku] = useState<Record<string, number> | null>(null);
+
+  // Stock on the shelf (Left) per SKU, for the ✓ next to each order line
+  useEffect(() => {
+    fetch("/api/admin/inventory", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success || !Array.isArray(data.items)) return;
+        const m: Record<string, number> = {};
+        data.items.forEach((i: { sku: string; left: number }) => (m[String(i.sku).toUpperCase()] = Number(i.left) || 0));
+        setLeftBySku(m);
+      })
+      .catch(() => {});
+  }, []);
 
   // Ambassador codes for the referral picker on each order
   useEffect(() => {
@@ -393,9 +429,20 @@ export default function AdminPage() {
                       <p className="text-xs font-bold text-gray-500">
                         ITEMS{order.huntBox ? ` · ${order.huntBox}` : ""}
                       </p>
-                      <p className="mt-2 whitespace-pre-wrap text-sm text-gray-300">
-                        {order.items || "No items listed"}
-                      </p>
+                      {!order.items ? (
+                        <p className="mt-2 text-sm text-gray-300">No items listed</p>
+                      ) : (
+                        <ul className="mt-2 space-y-0.5 text-sm text-gray-300">
+                          {order.items.split("\n").map((line, i) => (
+                            <li key={i} className="flex flex-wrap items-baseline gap-x-2">
+                              <span className="whitespace-pre-wrap">{line}</span>
+                              {!STOCK_ALREADY_OFF.includes(lower(currentStatus)) && (
+                                <StockMark line={line} leftBySku={leftBySku} />
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
 
                     <div className="mt-5 flex flex-wrap gap-3">
