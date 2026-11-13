@@ -37,17 +37,11 @@ function StockMark({ line, leftBySku }: { line: string; leftBySku: Record<string
   const qty = parseInt(line, 10);
   const sku = line.includes("|") ? line.split("|").pop()!.trim().toUpperCase() : "";
   if (!leftBySku || !sku || !(qty > 0) || /-CC-/.test(sku)) return null;
-  if (!(sku in leftBySku)) return <span className="text-xs font-bold text-gray-500">not tracked</span>;
-  const left = Math.max(leftBySku[sku], 0);
-  if (left >= qty)
-    return (
-      <span className="text-lg font-black leading-none text-green-500" title={`${left} on the shelf`}>
-        ✓
-      </span>
-    );
+  const left = Math.max(leftBySku[sku] ?? 0, 0);
+  if (left < qty) return null;
   return (
-    <span className={`text-xs font-bold ${left > 0 ? "text-yellow-400" : "text-red-400"}`}>
-      {left > 0 ? `only ${left} on shelf` : "none on shelf"}
+    <span className="text-lg font-black leading-none text-green-500" title={`${left} on the shelf`}>
+      ✓
     </span>
   );
 }
