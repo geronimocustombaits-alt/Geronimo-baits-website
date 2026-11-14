@@ -26,6 +26,8 @@ const FILTERS: { id: Filter; label: string }[] = [
 ];
 
 const REFRESH_MS = 60_000;
+// Lure types you're not selling right now (remembered on this device)
+const NOT_SELLING_KEY = "gb_stock_not_selling";
 
 // Made-to-order colours (par 0) with nothing on the shelf aren't "out of stock"
 const isTracked = (i: Item) => i.par > 0 || i.left !== 0;
@@ -58,6 +60,28 @@ export default function StockPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
+  const [notSelling, setNotSelling] = useState<string[]>([]);
+
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(NOT_SELLING_KEY) || "[]");
+      if (Array.isArray(saved)) setNotSelling(saved);
+    } catch {
+      // nothing saved on this device
+    }
+  }, []);
+
+  function toggleSelling(product: string) {
+    setNotSelling((current) => {
+      const next = current.includes(product) ? current.filter((p) => p !== product) : [...current, product];
+      try {
+        localStorage.setItem(NOT_SELLING_KEY, JSON.stringify(next));
+      } catch {
+        // not remembered on this device, but still applied until you leave the page
+      }
+      return next;
+    });
+  }
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
   const [hideEmpty, setHideEmpty] = useState(true);
@@ -92,18 +116,22 @@ export default function StockPage() {
   }, []);
 
   const stats = useMemo(() => {
-    const tracked = items.filter(isTracked);
+    const selling = items.filter((i) => !notSelling.includes(i.product || "Other"));
+    const tracked = selling.filter(isTracked);
     return {
-      packs: items.reduce((s, i) => s + Math.max(i.left, 0), 0),
-      inStock: items.filter((i) => i.left > 0).length,
+      packs: selling.reduce((s, i) => s + Math.max(i.left, 0), 0),
+      inStock: selling.filter((i) => i.left > 0).length,
       low: tracked.filter(isLow).length,
       out: tracked.filter(isOut).length,
     };
-  }, [items]);
+  }, [items, notSelling]);
+
+  const productTypes = useMemo(() => [...new Set(items.map((i) => i.product || "Other"))], [items]);
 
   const groups = useMemo(() => {
     const q = search.trim().toLowerCase();
     const visible = items
+      .filter((i) => !notSelling.includes(i.product || "Other"))
       .filter((i) => matches(i, filter))
       .filter((i) => !hideEmpty || filter !== "all" || isTracked(i))
       .filter((i) => !q || `${i.sku} ${i.colour} ${i.product}`.toLowerCase().includes(q));
@@ -113,7 +141,7 @@ export default function StockPage() {
       map.set(key, [...(map.get(key) || []), i]);
     });
     return Array.from(map.entries());
-  }, [items, filter, search, hideEmpty]);
+  }, [items, filter, search, hideEmpty, notSelling]);
 
   return (
     <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
@@ -130,6 +158,35 @@ export default function StockPage() {
           <Stat label="BELOW PAR" value={stats.low} tone={stats.low ? "yellow" : "grey"} />
           <Stat label="OUT OF STOCK" value={stats.out} tone={stats.out ? "red" : "grey"} />
         </div>
+
+        {productTypes.length > 0 && (
+          <div className="mt-8 rounded-3xl border border-green-500/20 bg-black/70 p-4 md:p-6">
+            <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+              <h2 className="text-lg font-black">LURES I&apos;M SELLING</h2>
+              <p className="text-xs text-gray-400">
+                Tap to switch a lure type on or off. Switched-off types are hidden here and left out of the totals.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {productTypes.map((p) => {
+                const on = !notSelling.includes(p);
+                return (
+                  <button
+                    key={p}
+                    onClick={() => toggleSelling(p)}
+                    aria-pressed={on}
+                    className={`rounded-full border px-4 py-2 text-xs font-black transition ${
+                      on ? "border-green-500 bg-green-500 text-black" : "border-white/15 text-gray-500 line-through hover:border-green-500/50"
+                    }`}
+                  >
+                    {on ? "✓ " : ""}
+                    {p.replace(/\s+/g, " ").trim()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         <div className="mt-8 rounded-3xl border border-green-500/20 bg-black/70 p-4 md:p-6">
           <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
