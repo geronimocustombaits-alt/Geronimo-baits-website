@@ -32,6 +32,18 @@ const STATUS_BUTTONS = ["Processing", "Packed", "Shipped", "Completed"];
 // Once an order is packed its packs are already off the shelf, so no stock marks
 const STOCK_ALREADY_OFF = ["packed", "shipped", "completed", "cancelled"];
 
+// Order dates come as "2026-10-29" (Zoho) or "11/11/2026 13:15:55" (the sheet,
+// UK day/month/year). Turn both into "2026-11-11 13:15:55" so they sort right.
+function dateKey(value: string) {
+  const v = String(value || "").trim();
+  const uk = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+  if (uk) return `${uk[3]}-${uk[2].padStart(2, "0")}-${uk[1].padStart(2, "0")}${uk[4]}`.replace("T", " ");
+  return v.replace("T", " ").replace(/\//g, "-");
+}
+// Oldest order first (then by order number)
+const oldestFirst = (a: Order, b: Order) =>
+  dateKey(a.date).localeCompare(dateKey(b.date)) || String(a.orderNumber).localeCompare(String(b.orderNumber));
+
 // "6x Warviper 4.5" Junebug | WV-BM-45-12" → quantity + SKU
 function parseLine(line: string) {
   const qty = parseInt(line, 10);
@@ -49,7 +61,7 @@ function fifoCovered(orders: Order[], leftBySku: Record<string, number> | null) 
   Object.keys(leftBySku).forEach((k) => (left[k] = Math.max(leftBySku[k], 0)));
   const open = orders
     .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void"))
-    .sort((a, b) => String(a.date).localeCompare(String(b.date)) || String(a.orderNumber).localeCompare(String(b.orderNumber)));
+    .sort(oldestFirst);
   open.forEach((o) =>
     String(o.items || "")
       .split("\n")
@@ -285,7 +297,8 @@ export default function AdminPage() {
               .join(" ")
               .toLowerCase()
               .includes(q)
-      );
+      )
+      .sort(oldestFirst);
   }, [orders, filter, search]);
 
   return (
