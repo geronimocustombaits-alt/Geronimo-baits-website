@@ -35,12 +35,23 @@ export default function ScanPage() {
   const lastCodeRef = useRef<{ code: string; at: number }>({ code: "", at: 0 });
   const addScannedRef = useRef<(code: string) => void>(() => {});
 
-  // Product names for the list (visible website products)
+  // Product names for the list: every SKU on the Inventory tab (live, hidden
+  // shop products included). Falls back to the website's product list.
   useEffect(() => {
-    fetch("/api/products")
+    fetch("/api/admin/inventory", { cache: "no-store" })
       .then((r) => r.json())
-      .then((data) => Array.isArray(data) && setProducts(data))
-      .catch(() => {});
+      .then((data) => {
+        if (!data.success || !Array.isArray(data.items)) throw new Error("no inventory");
+        setProducts(
+          data.items.map((i: { sku: string; product: string; colour: string }) => ({ sku: i.sku, bait: i.product, colour: i.colour }) as Product)
+        );
+      })
+      .catch(() =>
+        fetch("/api/products")
+          .then((r) => r.json())
+          .then((data) => Array.isArray(data) && setProducts(data))
+          .catch(() => {})
+      );
   }, []);
 
   // Keep an unsaved count if the phone locks or the page reloads
@@ -256,7 +267,7 @@ export default function ScanPage() {
         {lastScan && (
           <p className="mt-2 text-sm text-gray-300">
             Last scan: <span className="font-bold text-green-500">{lastScan}</span>{" "}
-            {nameFor(lastScan) ? `· ${nameFor(lastScan)}` : "· not on the website list"}
+            {nameFor(lastScan) ? `· ${nameFor(lastScan)}` : "· not on the Inventory tab"}
           </p>
         )}
 
