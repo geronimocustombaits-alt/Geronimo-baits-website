@@ -74,6 +74,7 @@ function dealerList(products: Product[], usual: UsualLine[]): DealerProduct[] {
   products.forEach((p) => {
     const price = dealerPrice(p);
     if (price === null || seen.has(p.sku.toUpperCase())) return;
+    if (!p.bait && !p.colour) return; // half-filled row on the Products sheet
     seen.add(p.sku.toUpperCase());
     out.push({
       sku: p.sku,

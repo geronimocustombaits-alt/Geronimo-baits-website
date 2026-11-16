@@ -1304,10 +1304,13 @@ function setReferral(ss, sheet, data) {
 // adding the invoice as a second order. Minimum-purchase progress keeps
 // coming from the Zoho invoices, as before.
 //
-// Retailers tab columns G–K (added automatically):
-//   ORDER CODE (filled in for you), CONTACT NAME, PHONE, EMAIL, DELIVERY
+// Retailers tab columns G–L (added automatically):
+//   ORDER CODE (filled in for you), CONTACT NAME, PHONE, EMAIL, DELIVERY,
+//   EXTRA COLOURS: colours to list with the shop's own even if it hasn't
+//   ordered them yet. SKU, optionally followed by the colour name, separated
+//   by commas: "WC-SS-33-08, WB-JC-43-06 Jungle Camo, SWB-BM-50-06 Junebug"
 
-const DEALER_COLS = ["ORDER CODE", "CONTACT NAME", "PHONE", "EMAIL", "DELIVERY"];
+const DEALER_COLS = ["ORDER CODE", "CONTACT NAME", "PHONE", "EMAIL", "DELIVERY", "EXTRA COLOURS"];
 const DEALER_FIRST_COL = 7; // G
 
 function dealerSheet(ss) {
@@ -1347,6 +1350,13 @@ function readDealers(ss) {
       email: String(r[DEALER_FIRST_COL + 2] || "").trim(),
       delivery: String(r[DEALER_FIRST_COL + 3] || "").trim(),
       minPacks: num(r[2]) || 0,
+      extra: String(r[DEALER_FIRST_COL + 4] || "")
+        .split(/[,;\n]+/)
+        .map(x => {
+          const m = x.trim().match(/^([A-Za-z]+-[A-Za-z0-9]+-\d+-\d+)\s*(.*)$/);
+          return m ? { sku: m[1].toUpperCase(), colour: m[2].trim() } : null;
+        })
+        .filter(Boolean),
     });
   });
   return out;
@@ -1379,13 +1389,13 @@ function getDealer(ss, data) {
     success: true,
     dealer: { name: d.name, contactName: d.contactName, delivery: d.delivery },
     progress: dealerProgress(d.name),
-    usual: dealerUsual(ss, d.name),
+    usual: dealerUsual(ss, d.name, d.extra),
   };
 }
 
 // The colours this shop has ordered before (any order on the Orders tab under
 // its name, Zoho invoices included), newest order first, with the last quantity.
-function dealerUsual(ss, name) {
+function dealerUsual(ss, name, extra) {
   const want = name.trim().toLowerCase();
   const rows = sheetRows(ss.getSheetByName(SHEET_NAME))
     .filter(r => String(r[2] || "").trim().toLowerCase() === want)
@@ -1405,7 +1415,23 @@ function dealerUsual(ss, name) {
       out.push(bySku[sku]);
     });
   });
-  return out.slice(0, 150);
+  // Colours added by hand on the Retailers tab, named from the Inventory tab
+  if (extra && extra.length) {
+    const inv = {};
+    getInventory(ss).items.forEach(i => { inv[i.sku.toUpperCase()] = i; });
+    const COLOUR_CODES = { BM: "Junebug", BWM: "Watermelon Red", SS: "SA Special", JC: "Jungle Camo" };
+    extra.forEach(e => {
+      const sku = e.sku;
+      if (bySku[sku]) return;
+      const item = inv[sku];
+      const parts = sku.split("-");
+      const product = PRODUCT_NAMES[`${parts[0]}-${parts[2]}`] || (item && item.product) || parts[0];
+      const colour = e.colour || (item && item.colour) || COLOUR_CODES[parts[1]] || parts[1];
+      bySku[sku] = { sku, label: `${product} - ${colour}`, lastQty: 0, times: 0 };
+      out.push(bySku[sku]);
+    });
+  }
+  return out.slice(0, 200);
 }
 
 // The website works out the prices; this only checks the link and saves the row.
