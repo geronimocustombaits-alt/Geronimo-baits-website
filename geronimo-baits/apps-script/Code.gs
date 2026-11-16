@@ -1379,7 +1379,33 @@ function getDealer(ss, data) {
     success: true,
     dealer: { name: d.name, contactName: d.contactName, delivery: d.delivery },
     progress: dealerProgress(d.name),
+    usual: dealerUsual(ss, d.name),
   };
+}
+
+// The colours this shop has ordered before (any order on the Orders tab under
+// its name, Zoho invoices included), newest order first, with the last quantity.
+function dealerUsual(ss, name) {
+  const want = name.trim().toLowerCase();
+  const rows = sheetRows(ss.getSheetByName(SHEET_NAME))
+    .filter(r => String(r[2] || "").trim().toLowerCase() === want)
+    .filter(r => !/void/i.test(String(r[COL.PAYMENT_STATUS - 1] || "")) && !/cancelled/i.test(String(r[COL.ORDER_STATUS - 1] || "")))
+    .sort((a, b) => new Date(b[1]) - new Date(a[1]));
+  const bySku = {};
+  const out = [];
+  rows.forEach(r => {
+    String(r[COL.ITEMS - 1] || "").split("\n").forEach(line => {
+      const qty = parseInt(line, 10);
+      if (!(qty > 0) || line.indexOf("|") < 0) return;
+      const sku = line.split("|").pop().trim().toUpperCase();
+      if (!/^[A-Z]+-[A-Z0-9]+-\d+-\d+$/.test(sku)) return;
+      if (bySku[sku]) { bySku[sku].times++; return; }
+      const label = line.slice(0, line.lastIndexOf("|")).replace(/^\s*\d+\s*x\s*/i, "").trim();
+      bySku[sku] = { sku, label, lastQty: qty, times: 1 };
+      out.push(bySku[sku]);
+    });
+  });
+  return out.slice(0, 150);
 }
 
 // The website works out the prices; this only checks the link and saves the row.

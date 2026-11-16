@@ -16,7 +16,9 @@ type DealerProduct = {
   size: string;
   price: number;
   retail: number;
-  inStock: number;
+  inStock: number | null; // null: not on the stock list (made to order)
+  usual: boolean; // a colour this shop has ordered before
+  lastQty: number;
 };
 
 type Progress = { packs: number; target: number; to: string; daysLeft: number } | null;
@@ -66,18 +68,37 @@ export default function DealerOrderPage() {
     } catch {}
   }, [qty, note, draftKey]);
 
-  // Products grouped by bait + size
-  const groups = useMemo(() => {
+  // Two sections (the shop's own colours, then the rest of the range), each
+  // grouped by bait + size
+  const sections = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const map = new Map<string, DealerProduct[]>();
-    (data?.products || [])
-      .filter((p) => !q || `${p.bait} ${p.colour} ${p.size} ${p.sku}`.toLowerCase().includes(q))
-      .forEach((p) => {
-        const key = `${p.bait}${p.size ? ` ${p.size}` : ""}`;
-        map.set(key, [...(map.get(key) || []), p]);
-      });
-    return [...map.entries()];
+    const group = (list: DealerProduct[]) => {
+      const map = new Map<string, DealerProduct[]>();
+      list
+        .filter((p) => !q || `${p.bait} ${p.colour} ${p.size} ${p.sku}`.toLowerCase().includes(q))
+        .forEach((p) => {
+          const key = `${p.bait}${p.size ? ` ${p.size}` : ""}`;
+          map.set(key, [...(map.get(key) || []), p]);
+        });
+      return [...map.entries()];
+    };
+    const all = data?.products || [];
+    return [
+      { id: "usual", title: "YOUR COLOURS", hint: "What you've ordered before", groups: group(all.filter((p) => p.usual)) },
+      { id: "range", title: "MORE FROM THE RANGE", hint: "", groups: group(all.filter((p) => !p.usual)) },
+    ].filter((sec) => sec.groups.length > 0);
   }, [data, search]);
+  const groupCount = sections.reduce((n, sec) => n + sec.groups.length, 0);
+  const hasUsual = (data?.products || []).some((p) => p.usual && p.lastQty > 0);
+
+  // Fill every one of the shop's colours with the quantity it last ordered
+  function fillUsual() {
+    const next: Record<string, number> = { ...qty };
+    (data?.products || []).forEach((p) => {
+      if (p.usual && p.lastQty > 0) next[p.sku] = p.lastQty;
+    });
+    setQty(next);
+  }
 
   const lines = useMemo(
     () => (data?.products || []).filter((p) => (qty[p.sku] || 0) > 0).map((p) => ({ ...p, qty: qty[p.sku] })),
@@ -190,8 +211,23 @@ export default function DealerOrderPage() {
           className="mt-8 w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white outline-none focus:border-green-500"
         />
 
-        <div className="mt-6 grid gap-6">
-          {groups.map(([name, items]) => (
+        {hasUsual && (
+          <button
+            onClick={fillUsual}
+            className="mt-4 w-full rounded-xl border border-green-500 px-4 py-3 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
+          >
+            ↻ FILL IN MY USUAL QUANTITIES
+          </button>
+        )}
+
+        {sections.map((section) => (
+        <div key={section.id} className="mt-8">
+          <div className="flex items-baseline justify-between gap-3">
+            <h2 className="text-sm font-black tracking-[0.3em] text-green-500">{section.title}</h2>
+            {section.hint && <p className="text-xs text-gray-500">{section.hint}</p>}
+          </div>
+        <div className="mt-4 grid gap-6">
+          {section.groups.map(([name, items]) => (
             <div key={name} className="rounded-2xl border border-green-500/20 bg-black p-4 md:p-5">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-xl font-black">{name.toUpperCase()}</h2>
@@ -207,7 +243,8 @@ export default function DealerOrderPage() {
                         <p className="text-xs text-gray-500">
                           {p.sku}
                           {p.price !== items[0].price ? ` · ${rand(p.price)}` : ""}
-                          {p.inStock > 0 ? ` · ${p.inStock} in stock` : " · made to order"}
+                          {p.inStock !== null && p.inStock > 0 ? ` · ${p.inStock} in stock` : " · made to order"}
+                          {p.usual && p.lastQty > 0 ? ` · last time ${p.lastQty}` : ""}
                         </p>
                       </div>
                       <div className="flex shrink-0 items-center gap-1">
@@ -240,8 +277,10 @@ export default function DealerOrderPage() {
               </ul>
             </div>
           ))}
-          {groups.length === 0 && <p className="text-center text-gray-500">Nothing matches that search.</p>}
         </div>
+        </div>
+        ))}
+        {groupCount === 0 && <p className="mt-8 text-center text-gray-500">Nothing matches that search.</p>}
 
         <label className="mt-8 block text-xs font-bold text-gray-400">
           NOTE (OPTIONAL)

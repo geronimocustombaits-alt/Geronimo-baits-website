@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { fetchProducts } from "@/lib/products";
 import { generateOrderNumber } from "@/lib/orderNumber";
-import { dealerPrice, isDealerCode } from "@/lib/dealer";
+import { dealerPrice, dealerPriceForSku, isDealerCode, splitLabel, type UsualLine } from "@/lib/dealer";
+import type { Product } from "@/lib/products";
 import { roundRand } from "@/lib/shop";
 
 // Dealer order page (/dealer/<code>). Open to anyone with the link: the code
@@ -29,6 +30,66 @@ async function callSheet(payload: Record<string, unknown>) {
 
 const codeFrom = (value: unknown) => String(value || "").trim().toUpperCase();
 
+type DealerProduct = {
+  sku: string;
+  bait: string;
+  colour: string;
+  size: string;
+  price: number;
+  retail: number;
+  inStock: number | null;
+  usual: boolean;
+  lastQty: number;
+};
+
+// The shop's own colours first (from its earlier orders, named the way it
+// knows them), then the rest of the range from the Products sheet.
+function dealerList(products: Product[], usual: UsualLine[]): DealerProduct[] {
+  const bySku = new Map(products.map((p) => [p.sku.toUpperCase(), p]));
+  const out: DealerProduct[] = [];
+  const seen = new Set<string>();
+
+  usual.forEach((u) => {
+    const sku = String(u.sku || "").toUpperCase();
+    if (!sku || seen.has(sku)) return;
+    const product = bySku.get(sku);
+    const price = product ? dealerPrice(product) : dealerPriceForSku(sku);
+    if (price === null) return;
+    const { bait, colour } = splitLabel(u.label);
+    seen.add(sku);
+    out.push({
+      sku: product?.sku || sku,
+      // Named the way the shop's own orders name it
+      bait: colour ? bait : product?.bait || bait,
+      colour: colour || product?.colour || bait,
+      size: colour ? "" : product?.size || "",
+      price,
+      retail: Number(product?.price) || 0,
+      inStock: product ? Math.max(Number(product.stockQty) || 0, 0) : null,
+      usual: true,
+      lastQty: Number(u.lastQty) || 0,
+    });
+  });
+
+  products.forEach((p) => {
+    const price = dealerPrice(p);
+    if (price === null || seen.has(p.sku.toUpperCase())) return;
+    seen.add(p.sku.toUpperCase());
+    out.push({
+      sku: p.sku,
+      bait: p.bait,
+      colour: p.colour,
+      size: p.size,
+      price,
+      retail: Number(p.price) || 0,
+      inStock: Math.max(Number(p.stockQty) || 0, 0),
+      usual: false,
+      lastQty: 0,
+    });
+  });
+  return out;
+}
+
 function escapeHtml(value: unknown): string {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -46,17 +107,7 @@ export async function GET(req: Request) {
     const result = await callSheet({ action: "getDealer", code });
     if (!result.success) return fail("This order link isn't valid. Please ask Geronimo Baits for a new one.", 404);
 
-    const products = (await fetchProducts())
-      .map((p) => ({
-        sku: p.sku,
-        bait: p.bait,
-        colour: p.colour,
-        size: p.size,
-        price: dealerPrice(p),
-        retail: Number(p.price) || 0,
-        inStock: Math.max(Number(p.stockQty) || 0, 0),
-      }))
-      .filter((p) => p.price !== null);
+    const products = dealerList(await fetchProducts(), Array.isArray(result.usual) ? result.usual : []);
 
     return NextResponse.json({ success: true, dealer: result.dealer, progress: result.progress, products });
   } catch (error) {
@@ -91,9 +142,12 @@ export async function POST(req: Request) {
     requested.set(sku, (requested.get(sku) || 0) + qty);
   }
 
-  let products;
+  // Same list the shop sees: its own colours plus the Products sheet
+  let products: DealerProduct[];
   try {
-    products = await fetchProducts();
+    const dealer = await callSheet({ action: "getDealer", code });
+    if (!dealer.success) return fail("This order link isn't valid.", 404);
+    products = dealerList(await fetchProducts(), Array.isArray(dealer.usual) ? dealer.usual : []);
   } catch (error) {
     console.error("DEALER ORDER: products unavailable:", error);
     return fail("We couldn't load the price list. Please try again in a minute.", 503);
@@ -102,11 +156,11 @@ export async function POST(req: Request) {
   const lines: { sku: string; label: string; qty: number; price: number }[] = [];
   for (const [sku, qty] of requested) {
     const product = products.find((p) => p.sku === sku);
-    const price = product ? dealerPrice(product) : null;
-    if (!product || price === null) {
+    if (!product) {
       return fail("One of the baits on your order is no longer listed. Please refresh and try again.");
     }
-    lines.push({ sku, label: `${product.bait} - ${product.colour}`.replace(/\|/g, "/"), qty, price });
+    const label = [product.bait, product.colour].filter(Boolean).join(" - ").replace(/\|/g, "/");
+    lines.push({ sku: product.sku, label, qty, price: product.price });
   }
 
   const productTotal = roundRand(lines.reduce((sum, l) => sum + l.price * l.qty, 0));
