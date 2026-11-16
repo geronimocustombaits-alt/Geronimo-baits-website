@@ -599,16 +599,29 @@ function packedSoFar(log, orderNumber) {
   return { totals, sends: Object.keys(refs).length };
 }
 
+// Part sends are for dealer orders only: a dealer-link order, or a customer
+// listed in the Retailers tab (e.g. Leo Cycles, Rod and Reel Leisure).
+function isDealerOrder(ss, sheet, row) {
+  const values = sheet.getRange(row, 1, 1, 11).getValues()[0];
+  if (String(values[10] || "").trim().toLowerCase() === "dealer") return true; // K = payment method
+  const customer = String(values[2] || "").trim().toLowerCase(); // C = customer name
+  if (!customer) return false;
+  const sh = dealerSheet(ss);
+  if (sh.getLastRow() < 2) return false;
+  return sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues()
+    .some(r => String(r[0] || "").trim().toLowerCase() === customer);
+}
+
 // What's still to send for an order (for the packing screen).
 function packProgress(ss, sheet, data) {
   const orderNumber = String(data.orderNumber || "").trim();
   const row = orderNumber ? findRow(sheet, orderNumber) : -1;
   if (row < 0) return { success: false, error: "Order not found in the Orders tab" };
   const { totals, sends } = packedSoFar(logSheet(ss), orderNumber);
-  return { success: true, packed: totals, sends };
+  return { success: true, packed: totals, sends, dealer: isDealerOrder(ss, sheet, row) };
 }
 
-// data.partial = true → send part of the order now (scans may be less than
+// data.partial = true → (dealer orders only) send part of the order now (scans may be less than
 // what's left, never more). Otherwise the scans must be exactly what's left.
 function packOrder(ss, sheet, data) {
   const orderNumber = String(data.orderNumber || "").trim();
@@ -621,6 +634,9 @@ function packOrder(ss, sheet, data) {
   const needed = totalsBySku(parseOrderItems(sheet.getRange(row, COL.ITEMS).getValue()));
   const scanned = totalsBySku(data.items || []);
   const partial = data.partial === true;
+  if (partial && !isDealerOrder(ss, sheet, row)) {
+    return { success: false, error: "Part sends are only for dealer orders. Scan the full order to pack it." };
+  }
 
   const log = logSheet(ss);
   const done = packedSoFar(log, orderNumber);

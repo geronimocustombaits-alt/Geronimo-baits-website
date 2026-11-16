@@ -10,8 +10,8 @@ import { hasCamera } from "./camera";
 //   • not on the order, or one too many → blocked with a red warning
 // When every line is complete, PACK ORDER sends the scans to the sheet, which
 // checks them again, takes the packs off stock and marks the order Packed.
-// SEND PART ORDER sends only what's been scanned so far (e.g. half a dealer
-// order): those packs come off stock and the order stays open with the rest
+// SEND PART ORDER (dealer orders only) sends only what's been scanned so far
+// (e.g. half a shop's order): those packs come off stock and the order stays open with the rest
 // "to follow". Next time the order is opened, only what's left is listed.
 
 type PackOrder = {
@@ -85,6 +85,7 @@ export default function PackPanel({
   // Packs already sent in an earlier part send, per SKU (from the sheet).
   const [sentBefore, setSentBefore] = useState<Record<string, number>>({});
   const [progressLoaded, setProgressLoaded] = useState(false);
+  const [isDealerOrder, setIsDealerOrder] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +96,9 @@ export default function PackPanel({
     })
       .then((r) => r.json())
       .then((d) => {
-        if (!cancelled && d?.success && d.packed && typeof d.packed === "object") setSentBefore(d.packed);
+        if (cancelled || !d?.success) return;
+        if (d.packed && typeof d.packed === "object") setSentBefore(d.packed);
+        setIsDealerOrder(d.dealer === true);
       })
       .catch(() => {})
       .finally(() => !cancelled && setProgressLoaded(true));
@@ -242,7 +245,7 @@ export default function PackPanel({
   const totalDone = lines.reduce((s, l) => s + Math.min(counts[l.key] || 0, l.needed), 0);
   const complete = lines.length > 0 && totalNeeded > 0 && totalDone === totalNeeded;
   const scannedWithSku = lines.reduce((s, l) => s + (l.sku ? Math.min(counts[l.key] || 0, l.needed) : 0), 0);
-  const canSendPart = !complete && scannedWithSku > 0;
+  const canSendPart = isDealerOrder && !complete && scannedWithSku > 0;
   const unpaid = !String(order.paymentStatus || "").toLowerCase().startsWith("paid");
 
   async function pack(partial = false) {

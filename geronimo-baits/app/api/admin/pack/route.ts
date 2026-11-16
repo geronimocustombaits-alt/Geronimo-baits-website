@@ -48,10 +48,15 @@ export async function POST(req: Request) {
       });
       const result = JSON.parse(await response.text());
       // Older sheet script without packProgress → treat as nothing sent yet.
-      if (!result?.success) return NextResponse.json({ success: true, packed: {}, sends: 0 });
-      return NextResponse.json({ success: true, packed: result.packed ?? {}, sends: Number(result.sends) || 0 });
+      if (!result?.success) return NextResponse.json({ success: true, packed: {}, sends: 0, dealer: false });
+      return NextResponse.json({
+        success: true,
+        packed: result.packed ?? {},
+        sends: Number(result.sends) || 0,
+        dealer: result.dealer === true, // part sends are for dealer orders only
+      });
     } catch {
-      return NextResponse.json({ success: true, packed: {}, sends: 0 });
+      return NextResponse.json({ success: true, packed: {}, sends: 0, dealer: false });
     }
   }
 
