@@ -27,6 +27,9 @@ export async function fetchProducts(): Promise<Product[]> {
   return parseCsv(await response.text())
     .map((row) => row.map(clean))
     .filter((row) => row.length >= 7 && row[0] && row[0].includes("-") && !row[0].includes("SKU"))
+    // Skip stray header rows (e.g. a SKU typed over a "Bait | Colour | ..." header),
+    // which would otherwise show up as a product and a "Bait" category.
+    .filter((row) => row[1].toLowerCase() !== "bait" && row[2].toLowerCase() !== "colour")
     .map((row) => ({
       sku: row[0],
       bait: row[1],
