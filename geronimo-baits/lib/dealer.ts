@@ -49,5 +49,11 @@ export function splitLabel(label: string): { bait: string; colour: string } {
 
 export const DEALER_LEAD_TIME = "2 to 3 weeks";
 
+// Shops give our ambassadors 20% off the shelf price; we take that off the
+// shop's next order.
+export const AMBASSADOR_DISCOUNT = 0.2;
+export const ambassadorCredit = (shelfAmount: number) =>
+  Math.round(Math.max(Number(shelfAmount) || 0, 0) * AMBASSADOR_DISCOUNT * 100) / 100;
+
 // Dealer order numbers: DL-261116-K7P3 (same shape as website orders)
 export const isDealerCode = (code: string) => /^[A-Z0-9]{8,20}$/.test(code);

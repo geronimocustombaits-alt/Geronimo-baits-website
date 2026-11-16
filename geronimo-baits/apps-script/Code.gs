@@ -1309,8 +1309,11 @@ function setReferral(ss, sheet, data) {
 //   EXTRA COLOURS: colours to list with the shop's own even if it hasn't
 //   ordered them yet. SKU, optionally followed by the colour name, separated
 //   by commas: "WC-SS-33-08, WB-JC-43-06 Jungle Camo, SWB-BM-50-06 Junebug"
+//   AMBASSADORS (column M): names, comma-separated, of the ambassadors the
+//   shop gives the ambassador discount to ("Johan, JJ, Hendre"). The shop
+//   reports those sales on its next order and the discount comes off it.
 
-const DEALER_COLS = ["ORDER CODE", "CONTACT NAME", "PHONE", "EMAIL", "DELIVERY", "EXTRA COLOURS"];
+const DEALER_COLS = ["ORDER CODE", "CONTACT NAME", "PHONE", "EMAIL", "DELIVERY", "EXTRA COLOURS", "AMBASSADORS"];
 const DEALER_FIRST_COL = 7; // G
 
 function dealerSheet(ss) {
@@ -1357,6 +1360,10 @@ function readDealers(ss) {
           return m ? { sku: m[1].toUpperCase(), colour: m[2].trim() } : null;
         })
         .filter(Boolean),
+      ambassadors: String(r[DEALER_FIRST_COL + 5] || "")
+        .split(/[,;\n]+/)
+        .map(x => x.trim())
+        .filter(Boolean),
     });
   });
   return out;
@@ -1387,7 +1394,7 @@ function getDealer(ss, data) {
   if (!d) return { success: false, error: "Unknown order link" };
   return {
     success: true,
-    dealer: { name: d.name, contactName: d.contactName, delivery: d.delivery },
+    dealer: { name: d.name, contactName: d.contactName, delivery: d.delivery, ambassadors: d.ambassadors },
     progress: dealerProgress(d.name),
     usual: dealerUsual(ss, d.name, d.extra),
   };
@@ -1446,6 +1453,11 @@ function addDealerOrder(ss, sheet, data) {
   if (!parseOrderItems(items).length) return { success: false, error: "No items" };
   const total = num(data.productTotal);
   const note = String(data.note || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  // Ambassador discounts the shop gave since its last order (worked out on the website)
+  const discount = Math.min(Math.max(num(data.discountTotal), 0), total);
+  const discountText = String(data.discountText || "").replace(/\s+/g, " ").trim().slice(0, 500);
+  const noteCell = [note ? `Note: ${note}` : "", discount > 0 ? `Ambassador discounts −R${discount.toFixed(2)}: ${discountText}` : ""]
+    .filter(Boolean).join(" · ");
   const delivery = d.delivery || "Dealer delivery";
 
   sheet.appendRow([
@@ -1458,12 +1470,12 @@ function addDealerOrder(ss, sheet, data) {
     items,
     total,
     0,
-    total,
+    Math.round((total - discount) * 100) / 100,
     "Dealer",
     "Awaiting invoice",
     "Processing",
     "",
-    note ? `Note: ${note}` : "",
+    noteCell,
     "",
     "",
     "",
@@ -1474,7 +1486,7 @@ function addDealerOrder(ss, sheet, data) {
   // doesn't lose the order: it stays "Awaiting invoice" for you to do by hand.
   let invoice = null;
   try {
-    invoice = createDealerInvoice(d, orderNumber, data.lines, note);
+    invoice = createDealerInvoice(d, orderNumber, data.lines, note, discount, discountText);
     if (invoice) {
       const row = findRow(sheet, orderNumber);
       if (String(sheet.getRange(1, COL.ZOHO_INVOICE).getValue()).trim() === "") {
@@ -1539,7 +1551,7 @@ function zohoItemIds(auth, orgId) {
   return map;
 }
 
-function createDealerInvoice(dealer, orderNumber, lines, note) {
+function createDealerInvoice(dealer, orderNumber, lines, note, discount, discountText) {
   const props = PropertiesService.getScriptProperties();
   const mode = String(props.getProperty("DEALER_AUTO_INVOICE") || "").trim().toLowerCase();
   if (mode !== "draft" && mode !== "send") return null;
@@ -1563,8 +1575,12 @@ function createDealerInvoice(dealer, orderNumber, lines, note) {
     customer_id: customerId,
     subject_content: "Geronimo Baits", // the invoice's Subject field
     line_items: lineItems,
-    notes: `Dealer order ${orderNumber}${note ? `\nNote: ${note}` : ""}`,
+    notes: `Dealer order ${orderNumber}${note ? `\nNote: ${note}` : ""}${discount > 0 ? `\nAmbassador discounts (20% of shelf price): ${discountText}` : ""}`,
   };
+  if (discount > 0) {
+    body.adjustment = -Math.round(discount * 100) / 100;
+    body.adjustment_description = "Ambassador discounts";
+  }
   const created = zohoSend(auth, "post", `/invoices?organization_id=${orgId}`, body).invoice;
 
   // Reference number = invoice number's digits (INV-000052 → 52)

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { fetchProducts } from "@/lib/products";
 import { generateOrderNumber } from "@/lib/orderNumber";
-import { dealerPrice, dealerPriceForSku, isDealerCode, splitLabel, type UsualLine } from "@/lib/dealer";
+import { ambassadorCredit, dealerPrice, dealerPriceForSku, isDealerCode, splitLabel, type UsualLine } from "@/lib/dealer";
 import type { Product } from "@/lib/products";
 import { roundRand } from "@/lib/shop";
 
@@ -145,10 +145,12 @@ export async function POST(req: Request) {
 
   // Same list the shop sees: its own colours plus the Products sheet
   let products: DealerProduct[];
+  let ambassadors: string[] = [];
   try {
     const dealer = await callSheet({ action: "getDealer", code });
     if (!dealer.success) return fail("This order link isn't valid.", 404);
     products = dealerList(await fetchProducts(), Array.isArray(dealer.usual) ? dealer.usual : []);
+    ambassadors = Array.isArray(dealer.dealer?.ambassadors) ? dealer.dealer.ambassadors.map(String) : [];
   } catch (error) {
     console.error("DEALER ORDER: products unavailable:", error);
     return fail("We couldn't load the price list. Please try again in a minute.", 503);
@@ -165,6 +167,26 @@ export async function POST(req: Request) {
   }
 
   const productTotal = roundRand(lines.reduce((sum, l) => sum + l.price * l.qty, 0));
+
+  // Ambassador sales the shop gave 20% off: [{ name, amount (shelf price) }]
+  const discounts: { name: string; amount: number; credit: number }[] = [];
+  if (Array.isArray(body.discounts)) {
+    if (body.discounts.length > 30) return fail("Too many ambassador sales on one order.");
+    for (const d of body.discounts as { name?: unknown; amount?: unknown }[]) {
+      const name = String(d?.name || "").trim();
+      const amount = roundRand(Number(d?.amount));
+      if (!name && !amount) continue;
+      const known = ambassadors.find((a) => a.toLowerCase() === name.toLowerCase());
+      if (!known) return fail("Please choose the ambassador for each ambassador sale.");
+      if (!Number.isFinite(amount) || amount <= 0 || amount > 20000) {
+        return fail(`Please check the amount for ${known}'s sale.`);
+      }
+      discounts.push({ name: known, amount, credit: ambassadorCredit(amount) });
+    }
+  }
+  const discountTotal = Math.min(roundRand(discounts.reduce((s, d) => s + d.credit, 0)), productTotal);
+  const discountText = discounts.map((d) => `${d.name} R${d.amount.toFixed(2)} → R${d.credit.toFixed(2)}`).join("; ");
+  const orderTotal = roundRand(productTotal - discountTotal);
   const packs = lines.reduce((sum, l) => sum + l.qty, 0);
   const orderNumber = generateOrderNumber().replace(/^GB-/, "DL-");
   // Same line format as every other order, so packing and the make list read it
@@ -172,7 +194,7 @@ export async function POST(req: Request) {
 
   let saved;
   try {
-    saved = await callSheet({ action: "addDealerOrder", code, orderNumber, items, productTotal, note, lines });
+    saved = await callSheet({ action: "addDealerOrder", code, orderNumber, items, productTotal, note, lines, discountTotal, discountText });
   } catch (error) {
     console.error("DEALER ORDER: could not save:", error);
     return fail("We couldn't save your order. Please try again or WhatsApp us.", 502);
@@ -196,6 +218,12 @@ export async function POST(req: Request) {
           <p><strong>${escapeHtml(saved.dealer)}</strong> · ${orderNumber}</p>
           <p>${rows}</p>
           <p><strong>${packs} packets · R${productTotal.toFixed(2)}</strong> at dealer prices</p>
+          ${
+            discountTotal > 0
+              ? `<p>Less ambassador discounts (20% of shelf price): −R${discountTotal.toFixed(2)}<br />${escapeHtml(discountText)}</p>
+                 <p><strong>Order total R${orderTotal.toFixed(2)}</strong></p>`
+              : ""
+          }
           ${note ? `<p><strong>Note:</strong> ${escapeHtml(note)}</p>` : ""}
           ${
             saved.invoice?.number
@@ -212,5 +240,5 @@ export async function POST(req: Request) {
 
   // Tell the shop its invoice number only once it's been emailed to them
   const invoiceNumber = saved.invoice?.mode === "send" ? String(saved.invoice.number || "") : "";
-  return NextResponse.json({ success: true, orderNumber, packs, productTotal, invoiceNumber });
+  return NextResponse.json({ success: true, orderNumber, packs, productTotal: orderTotal, discountTotal, invoiceNumber });
 }

@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
-import { DEALER_LEAD_TIME } from "@/lib/dealer";
+import { AMBASSADOR_DISCOUNT, DEALER_LEAD_TIME, ambassadorCredit } from "@/lib/dealer";
 import { BUSINESS, whatsappLink } from "@/lib/business";
 
 type DealerProduct = {
@@ -24,7 +24,7 @@ type DealerProduct = {
 type Progress = { packs: number; target: number; to: string; daysLeft: number } | null;
 
 type Loaded = {
-  dealer: { name: string; contactName: string; delivery: string };
+  dealer: { name: string; contactName: string; delivery: string; ambassadors?: string[] };
   progress: Progress;
   products: DealerProduct[];
 };
@@ -39,6 +39,8 @@ export default function DealerOrderPage() {
   const [loadError, setLoadError] = useState("");
   const [qty, setQty] = useState<Record<string, number>>({});
   const [note, setNote] = useState("");
+  // Ambassador sales since the last order: name + amount at shelf price
+  const [sales, setSales] = useState<{ name: string; amount: string }[]>([]);
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
@@ -59,14 +61,15 @@ export default function DealerOrderPage() {
       const saved = JSON.parse(localStorage.getItem(draftKey) || "null");
       if (saved?.qty) setQty(saved.qty);
       if (saved?.note) setNote(saved.note);
+      if (Array.isArray(saved?.sales)) setSales(saved.sales);
     } catch {}
   }, [code, draftKey]);
 
   useEffect(() => {
     try {
-      localStorage.setItem(draftKey, JSON.stringify({ qty, note }));
+      localStorage.setItem(draftKey, JSON.stringify({ qty, note, sales }));
     } catch {}
-  }, [qty, note, draftKey]);
+  }, [qty, note, sales, draftKey]);
 
   // Two sections (the shop's own colours, then the rest of the range), each
   // grouped by bait + size
@@ -107,7 +110,15 @@ export default function DealerOrderPage() {
     [data, qty]
   );
   const packs = lines.reduce((s, l) => s + l.qty, 0);
-  const total = lines.reduce((s, l) => s + l.qty * l.price, 0);
+  const subtotal = lines.reduce((s, l) => s + l.qty * l.price, 0);
+  const filledSales = sales.filter((x) => x.name || Number(x.amount) > 0);
+  const discount = Math.min(
+    filledSales.reduce((s, x) => s + ambassadorCredit(Number(x.amount)), 0),
+    subtotal
+  );
+  const total = subtotal - discount;
+  const ambassadors = data?.dealer.ambassadors || [];
+  const pct = Math.round(AMBASSADOR_DISCOUNT * 100);
 
   function setLine(sku: string, value: number) {
     const n = Math.max(0, Math.min(500, Math.floor(value) || 0));
@@ -122,7 +133,12 @@ export default function DealerOrderPage() {
       const r = await fetch("/api/dealer", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, note, items: lines.map((l) => ({ sku: l.sku, qty: l.qty })) }),
+        body: JSON.stringify({
+          code,
+          note,
+          items: lines.map((l) => ({ sku: l.sku, qty: l.qty })),
+          discounts: filledSales.map((x) => ({ name: x.name, amount: Number(x.amount) || 0 })),
+        }),
       });
       const d = await r.json();
       if (!d.success) {
@@ -132,6 +148,7 @@ export default function DealerOrderPage() {
       setPlaced({ orderNumber: d.orderNumber, packs: d.packs, productTotal: d.productTotal, invoiceNumber: d.invoiceNumber });
       setQty({});
       setNote("");
+      setSales([]);
       try {
         localStorage.removeItem(draftKey);
       } catch {}
@@ -324,6 +341,63 @@ export default function DealerOrderPage() {
         ))}
         {groupCount === 0 && <p className="mt-8 text-center text-gray-500">Nothing matches that search.</p>}
 
+        {ambassadors.length > 0 && (
+          <div className="mt-8 rounded-2xl border border-green-500/25 bg-black/85 p-4 backdrop-blur-md md:p-5">
+            <p className="text-sm font-black tracking-[0.3em] text-green-500">AMBASSADOR SALES</p>
+            <p className="mt-2 text-sm text-gray-400">
+              Sold Geronimo baits to {ambassadors.join(", ")} at {pct}% off since your last order? Add each sale at the
+              normal shelf price and we take the {pct}% off this order.
+            </p>
+            <div className="mt-4 grid gap-3">
+              {sales.map((sale, i) => (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={sale.name}
+                    onChange={(e) => setSales((list) => list.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))}
+                    className="h-10 rounded-lg border border-green-500/30 bg-black px-3 font-bold text-white outline-none focus:border-green-500"
+                  >
+                    <option value="">Ambassador...</option>
+                    {ambassadors.map((a) => (
+                      <option key={a} value={a}>
+                        {a}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="flex h-10 items-center rounded-lg border border-green-500/30 bg-black px-3">
+                    <span className="text-gray-500">R</span>
+                    <input
+                      inputMode="decimal"
+                      value={sale.amount}
+                      placeholder="shelf price"
+                      onChange={(e) =>
+                        setSales((list) =>
+                          list.map((x, j) => (j === i ? { ...x, amount: e.target.value.replace(/[^0-9.]/g, "") } : x))
+                        )
+                      }
+                      className="w-28 bg-transparent px-2 font-bold text-white outline-none"
+                    />
+                  </div>
+                  <span className="text-sm font-black text-green-500">
+                    −{rand(ambassadorCredit(Number(sale.amount)))}
+                  </span>
+                  <button
+                    onClick={() => setSales((list) => list.filter((_, j) => j !== i))}
+                    className="ml-auto text-xs text-gray-500 underline hover:text-red-400"
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() => setSales((list) => [...list, { name: "", amount: "" }])}
+              className="mt-4 rounded-xl border border-green-500/40 px-4 py-2 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
+            >
+              + ADD AMBASSADOR SALE
+            </button>
+          </div>
+        )}
+
         <label className="mt-8 block rounded-2xl border border-green-500/25 bg-black/85 p-4 text-xs font-bold text-gray-400 backdrop-blur-md">
           NOTE (OPTIONAL)
           <textarea
@@ -340,7 +414,9 @@ export default function DealerOrderPage() {
       <div className="fixed inset-x-0 bottom-0 border-t border-green-500/30 bg-black/95 px-4 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-4xl items-center justify-between gap-4">
           <div>
-            <p className="text-xs font-bold text-gray-400">{packs} PACKETS</p>
+            <p className="text-xs font-bold text-gray-400">
+              {packs} PACKETS{discount > 0 ? ` · ${rand(subtotal)} − ${rand(discount)} ambassador` : ""}
+            </p>
             <p className="text-2xl font-black text-green-500">{rand(total)}</p>
             {error && <p className="text-xs font-bold text-red-400">{error}</p>}
           </div>
