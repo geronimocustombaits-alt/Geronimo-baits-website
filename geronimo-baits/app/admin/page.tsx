@@ -375,11 +375,11 @@ export default function AdminPage() {
         <PackPanel
           order={packing}
           onClose={() => setPacking(null)}
-          onPacked={(orderNumber) => {
+          onPacked={(orderNumber, orderStatus) => {
             setPacking(null);
             // Show it straight away; the published sheet can lag behind.
             setOrders((current) =>
-              current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus: "Packed" } : o))
+              current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus } : o))
             );
           }}
         />

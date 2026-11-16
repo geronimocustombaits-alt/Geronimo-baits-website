@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/adminAuth";
 
 // Packing scan → Orders + Inventory tabs (via the Orders Apps Script web app).
-// The sheet checks the scans against the order's items. Only an exact match
-// takes the packs off stock and marks the order Packed.
+// The sheet checks the scans against the order's items. An exact match of
+// what's left takes the packs off stock and marks the order Packed; a part
+// send (partial: true) takes off only what was scanned and keeps the rest open.
 
 type ScanItem = { sku: string; qty: number };
 
@@ -21,7 +22,7 @@ export async function POST(req: Request) {
     );
   }
 
-  let body: { orderNumber?: string; items?: ScanItem[] };
+  let body: { orderNumber?: string; items?: ScanItem[]; partial?: boolean; progressOnly?: boolean };
   try {
     body = await req.json();
   } catch {
@@ -37,14 +38,38 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Missing order number" }, { status: 400 });
   }
 
+  // What's already been sent for this order (part sends), for the packing screen.
+  if (body.progressOnly) {
+    try {
+      const response = await fetch(webhook, {
+        method: "POST",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({ action: "packProgress", secret, orderNumber }),
+      });
+      const result = JSON.parse(await response.text());
+      // Older sheet script without packProgress → treat as nothing sent yet.
+      if (!result?.success) return NextResponse.json({ success: true, packed: {}, sends: 0 });
+      return NextResponse.json({ success: true, packed: result.packed ?? {}, sends: Number(result.sends) || 0 });
+    } catch {
+      return NextResponse.json({ success: true, packed: {}, sends: 0 });
+    }
+  }
+
   try {
     const response = await fetch(webhook, {
       method: "POST",
       headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ action: "packOrder", secret, orderNumber, items }),
+      body: JSON.stringify({ action: "packOrder", secret, orderNumber, items, partial: body.partial === true }),
     });
     const text = await response.text();
-    let result: { success?: boolean; error?: string; problems?: string[]; deducted?: boolean } = {};
+    let result: {
+      success?: boolean;
+      error?: string;
+      problems?: string[];
+      deducted?: boolean;
+      complete?: boolean;
+      stillLeft?: number;
+    } = {};
     try {
       result = JSON.parse(text);
     } catch {
@@ -59,7 +84,13 @@ export async function POST(req: Request) {
         problems: result.problems ?? [],
       });
     }
-    return NextResponse.json({ success: true, deducted: Boolean(result.deducted) });
+    return NextResponse.json({
+      success: true,
+      deducted: Boolean(result.deducted),
+      // An older sheet script has no "complete" → it only ever packs the full order.
+      complete: result.complete !== false,
+      stillLeft: Number(result.stillLeft) || 0,
+    });
   } catch (error) {
     console.error("PACK ERROR:", error);
     return NextResponse.json({ success: false, error: "Couldn't reach the sheet" }, { status: 502 });

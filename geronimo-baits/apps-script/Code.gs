@@ -95,6 +95,10 @@ function doPost(e) {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(getInventory(ss));
     }
+    if (data.action === "packProgress") {
+      if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
+      return json(packProgress(ss, sheet, data));
+    }
     if (data.action === "packOrder") {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
       return json(packOrder(ss, sheet, data));
@@ -564,6 +568,8 @@ function importZohoOrders() {
 // order's ITEMS exactly (every SKU, every quantity, nothing extra), otherwise
 // nothing changes and the mismatches are sent back. On a match the packs are
 // added to Sold (reference "PACK <order>") and ORDER STATUS becomes Packed.
+// A part send (data.partial) takes off only what was scanned (reference
+// "PACK <order> #n") and sets ORDER STATUS to "Part sent (x to follow)".
 
 function totalsBySku(items) {
   const totals = {};
@@ -575,6 +581,35 @@ function totalsBySku(items) {
   return totals;
 }
 
+// Packs already sent for an order, per SKU, from the Stock Log.
+// Counts the full pack ("PACK <order>") and part sends ("PACK <order> #2" …).
+function packedSoFar(log, orderNumber) {
+  const base = `PACK ${orderNumber}`;
+  const totals = {};
+  const refs = {};
+  const last = log.getLastRow();
+  if (last < 2) return { totals, sends: 0 };
+  log.getRange(2, 2, last - 1, 4).getValues().forEach(r => { // TYPE, SKU, QTY, REFERENCE
+    const ref = String(r[3]);
+    if (r[0] !== "SALE" || !(ref === base || ref.indexOf(base + " #") === 0)) return;
+    const sku = String(r[1]).trim().toUpperCase();
+    totals[sku] = (totals[sku] || 0) + Math.abs(num(r[2]));
+    refs[ref] = true;
+  });
+  return { totals, sends: Object.keys(refs).length };
+}
+
+// What's still to send for an order (for the packing screen).
+function packProgress(ss, sheet, data) {
+  const orderNumber = String(data.orderNumber || "").trim();
+  const row = orderNumber ? findRow(sheet, orderNumber) : -1;
+  if (row < 0) return { success: false, error: "Order not found in the Orders tab" };
+  const { totals, sends } = packedSoFar(logSheet(ss), orderNumber);
+  return { success: true, packed: totals, sends };
+}
+
+// data.partial = true → send part of the order now (scans may be less than
+// what's left, never more). Otherwise the scans must be exactly what's left.
 function packOrder(ss, sheet, data) {
   const orderNumber = String(data.orderNumber || "").trim();
   const row = orderNumber ? findRow(sheet, orderNumber) : -1;
@@ -585,31 +620,46 @@ function packOrder(ss, sheet, data) {
 
   const needed = totalsBySku(parseOrderItems(sheet.getRange(row, COL.ITEMS).getValue()));
   const scanned = totalsBySku(data.items || []);
+  const partial = data.partial === true;
 
-  const problems = [];
-  Object.keys(needed).forEach(sku => {
-    const got = scanned[sku] || 0;
-    if (got !== needed[sku]) problems.push(`${sku}: scanned ${got} of ${needed[sku]}`);
-  });
-  Object.keys(scanned).forEach(sku => {
-    if (!(sku in needed)) problems.push(`${sku} is not on this order`);
-  });
-  if (problems.length) return { success: false, error: "Scans don't match the order", problems };
-
-  // Already packed before? Then don't take it off twice.
-  // (Inventory was reset to the 11 Nov stocktake, so sales logged under the old
-  // Zoho / website rules no longer count — every order comes off when packed.)
   const log = logSheet(ss);
-  const packRef = `PACK ${orderNumber}`;
-  const alreadyOff = alreadyLogged(log, packRef, "SALE");
+  const done = packedSoFar(log, orderNumber);
+  const remaining = {};
+  Object.keys(needed).forEach(sku => {
+    remaining[sku] = Math.max(needed[sku] - (done.totals[sku] || 0), 0);
+  });
+  const leftTotal = Object.keys(remaining).reduce((t, k) => t + remaining[k], 0);
 
-  if (!alreadyOff) {
-    const items = Object.keys(needed).map(sku => ({ sku, qty: needed[sku] }));
-    recordSale(ss, items, packRef, "Packing");
+  // Already fully packed under the old rule (one "PACK <order>" for everything)?
+  if (leftTotal === 0) {
+    sheet.getRange(row, COL.ORDER_STATUS).setValue("Packed");
+    return { success: true, deducted: false, complete: true };
   }
 
-  sheet.getRange(row, COL.ORDER_STATUS).setValue("Packed");
-  return { success: true, deducted: !alreadyOff };
+  const problems = [];
+  Object.keys(scanned).forEach(sku => {
+    if (!(sku in needed)) problems.push(`${sku} is not on this order`);
+    else if (scanned[sku] > remaining[sku]) problems.push(`${sku}: scanned ${scanned[sku]}, only ${remaining[sku]} still to send`);
+  });
+  if (!partial) {
+    Object.keys(remaining).forEach(sku => {
+      const got = scanned[sku] || 0;
+      if (remaining[sku] > 0 && got < remaining[sku]) problems.push(`${sku}: scanned ${got} of ${remaining[sku]}`);
+    });
+  }
+  const scannedTotal = Object.keys(scanned).reduce((t, k) => t + scanned[k], 0);
+  if (partial && scannedTotal === 0) problems.push("Nothing scanned yet");
+  if (problems.length) return { success: false, error: "Scans don't match the order", problems };
+
+  // First and only send keeps the old reference; part sends are numbered.
+  const complete = scannedTotal === leftTotal;
+  const packRef = done.sends === 0 && complete ? `PACK ${orderNumber}` : `PACK ${orderNumber} #${done.sends + 1}`;
+  const items = Object.keys(scanned).map(sku => ({ sku, qty: scanned[sku] }));
+  recordSale(ss, items, packRef, partial ? "Packing (part)" : "Packing");
+
+  const stillLeft = leftTotal - scannedTotal;
+  sheet.getRange(row, COL.ORDER_STATUS).setValue(complete ? "Packed" : `Part sent (${stillLeft} to follow)`);
+  return { success: true, deducted: true, complete, sent: scannedTotal, stillLeft };
 }
 
 // ───────────────────────────── Live stock (back office) ─────────────────────────────

@@ -10,6 +10,9 @@ import { hasCamera } from "./camera";
 //   • not on the order, or one too many → blocked with a red warning
 // When every line is complete, PACK ORDER sends the scans to the sheet, which
 // checks them again, takes the packs off stock and marks the order Packed.
+// SEND PART ORDER sends only what's been scanned so far (e.g. half a dealer
+// order): those packs come off stock and the order stays open with the rest
+// "to follow". Next time the order is opened, only what's left is listed.
 
 type PackOrder = {
   orderNumber: string;
@@ -22,7 +25,8 @@ type Line = {
   key: string;
   label: string;
   sku: string; // "" = no barcode → tick by hand
-  needed: number;
+  needed: number; // still to send (order qty minus packs sent earlier)
+  ordered: number; // on the order
   custom: boolean; // custom colour (…-CC-…) → usually no label, tick by hand
 };
 
@@ -45,7 +49,7 @@ function parseItems(text: string): Line[] {
       const needed = Number.isFinite(qty) && qty > 0 ? qty : 1;
       // Every order line stays its own row, so two custom colours that share a
       // SKU (e.g. WB-CC-43-06) still show as two separate colours to pack.
-      lines.push({ key: `line-${i}`, label: label || sku, sku, needed, custom: /-CC-/.test(sku) });
+      lines.push({ key: `line-${i}`, label: label || sku, sku, needed, ordered: needed, custom: /-CC-/.test(sku) });
     });
   return lines;
 }
@@ -76,9 +80,41 @@ export default function PackPanel({
 }: {
   order: PackOrder;
   onClose: () => void;
-  onPacked: (orderNumber: string) => void;
+  onPacked: (orderNumber: string, orderStatus: string) => void;
 }) {
-  const lines = useMemo(() => parseItems(order.items), [order.items]);
+  // Packs already sent in an earlier part send, per SKU (from the sheet).
+  const [sentBefore, setSentBefore] = useState<Record<string, number>>({});
+  const [progressLoaded, setProgressLoaded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/admin/pack", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ orderNumber: order.orderNumber, progressOnly: true }),
+    })
+      .then((r) => r.json())
+      .then((d) => {
+        if (!cancelled && d?.success && d.packed && typeof d.packed === "object") setSentBefore(d.packed);
+      })
+      .catch(() => {})
+      .finally(() => !cancelled && setProgressLoaded(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [order.orderNumber]);
+
+  // Take packs sent earlier off the lines, first line first for a shared SKU.
+  const lines = useMemo(() => {
+    const left = { ...sentBefore };
+    return parseItems(order.items).map((l) => {
+      if (!l.sku) return l;
+      const sent = Math.min(left[l.sku] || 0, l.ordered);
+      left[l.sku] = (left[l.sku] || 0) - sent;
+      return { ...l, needed: l.ordered - sent };
+    });
+  }, [order.items, sentBefore]);
+  const anySentBefore = lines.some((l) => l.needed < l.ordered);
   const draftKey = `gb-pack-${order.orderNumber}`;
 
   const [counts, setCounts] = useState<Record<string, number>>({});
@@ -204,11 +240,23 @@ export default function PackPanel({
 
   const totalNeeded = lines.reduce((s, l) => s + l.needed, 0);
   const totalDone = lines.reduce((s, l) => s + Math.min(counts[l.key] || 0, l.needed), 0);
-  const complete = lines.length > 0 && totalDone === totalNeeded;
+  const complete = lines.length > 0 && totalNeeded > 0 && totalDone === totalNeeded;
+  const scannedWithSku = lines.reduce((s, l) => s + (l.sku ? Math.min(counts[l.key] || 0, l.needed) : 0), 0);
+  const canSendPart = !complete && scannedWithSku > 0;
   const unpaid = !String(order.paymentStatus || "").toLowerCase().startsWith("paid");
 
-  async function pack() {
-    if (!complete) return;
+  async function pack(partial = false) {
+    if (partial ? !canSendPart : !complete) return;
+    if (
+      partial &&
+      !window.confirm(
+        `Send PART of ${order.orderNumber} now?\n\n${totalDone} pack(s) go in this box and come off stock.\n${
+          totalNeeded - totalDone
+        } pack(s) stay on the order to send later.`
+      )
+    ) {
+      return;
+    }
     if (
       unpaid &&
       !window.confirm(`${order.orderNumber} is not marked Paid (${order.paymentStatus || "Pending"}). Pack it anyway?`)
@@ -225,7 +273,11 @@ export default function PackPanel({
         body: JSON.stringify({
           orderNumber: order.orderNumber,
           // the sheet adds up lines that share a SKU
-          items: lines.filter((l) => l.sku).map((l) => ({ sku: l.sku, qty: Math.min(counts[l.key] || 0, l.needed) })),
+          items: lines
+            .filter((l) => l.sku)
+            .map((l) => ({ sku: l.sku, qty: Math.min(counts[l.key] || 0, l.needed) }))
+            .filter((i) => i.qty > 0),
+          partial,
         }),
       });
       if (response.status === 401) {
@@ -244,10 +296,14 @@ export default function PackPanel({
         localStorage.removeItem(draftKey);
       } catch {}
       stopCamera();
-      onPacked(order.orderNumber);
+      const stillLeft = Number(data.stillLeft) || 0;
+      const done = data.complete !== false;
+      onPacked(order.orderNumber, done ? "Packed" : `Part sent (${stillLeft} to follow)`);
       window.alert(
-        data.deducted
-          ? `${order.orderNumber} packed. ${totalNeeded} item(s) taken off stock.`
+        !done
+          ? `Part of ${order.orderNumber} sent. ${totalDone} pack(s) taken off stock, ${stillLeft} still to follow.\nOpen the order again to pack the rest when it's ready.`
+          : data.deducted
+          ? `${order.orderNumber} packed. ${totalDone} item(s) taken off stock.`
           : `${order.orderNumber} packed. Stock for this order was already taken off earlier, so it wasn't deducted again.`
       );
     } catch (error) {
@@ -280,6 +336,13 @@ export default function PackPanel({
             Payment status: {order.paymentStatus || "Pending"}. Orders are normally only released once paid.
           </p>
         )}
+
+        {anySentBefore && (
+          <p className="mb-4 rounded-xl border border-green-500/40 bg-green-500/10 px-4 py-3 text-sm font-bold text-green-400">
+            Part of this order was sent already. Only what&apos;s still to follow is listed below.
+          </p>
+        )}
+        {!progressLoaded && <p className="mb-4 text-sm text-gray-500">Checking what was sent before…</p>}
 
         <div className="overflow-hidden rounded-2xl border border-green-500/40 bg-black">
           <video
@@ -352,6 +415,7 @@ export default function PackPanel({
           <div className="grid gap-2">
             {lines.map((line) => {
               const have = Math.min(counts[line.key] || 0, line.needed);
+              const sentEarlier = line.needed === 0;
               const done = have === line.needed;
               return (
                 <div
@@ -367,6 +431,12 @@ export default function PackPanel({
                     </p>
                     <p className="text-xs text-gray-500">
                       {line.sku || "No barcode"}
+                      {sentEarlier && <span className="ml-2 font-bold text-green-500">SENT EARLIER</span>}
+                      {!sentEarlier && line.needed < line.ordered && (
+                        <span className="ml-2 font-bold text-yellow-400">
+                          {line.ordered - line.needed} of {line.ordered} sent earlier
+                        </span>
+                      )}
                       {(!line.sku || line.custom) && (
                         <span className="ml-2 rounded bg-yellow-500/15 px-1.5 py-0.5 font-bold text-yellow-400">
                           {line.custom ? "CUSTOM · " : ""}TICK BY HAND
@@ -406,8 +476,18 @@ export default function PackPanel({
           </ul>
         )}
 
+        {canSendPart && (
+          <button
+            onClick={() => pack(true)}
+            disabled={saving}
+            className="mt-5 w-full rounded-2xl border-2 border-yellow-400 py-4 text-lg font-black text-yellow-400 transition hover:bg-yellow-400 hover:text-black disabled:opacity-40"
+          >
+            {saving ? "SAVING..." : `SEND PART ORDER (${totalDone} OF ${totalNeeded}) · REST TO FOLLOW`}
+          </button>
+        )}
+
         <button
-          onClick={pack}
+          onClick={() => pack(false)}
           disabled={!complete || saving}
           className="mt-5 w-full rounded-2xl bg-green-500 py-4 text-lg font-black text-black transition hover:bg-green-400 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400"
         >
