@@ -40,6 +40,30 @@ function dateKey(value: string) {
   if (uk) return `${uk[3]}-${uk[2].padStart(2, "0")}-${uk[1].padStart(2, "0")}${uk[4]}`.replace("T", " ");
   return v.replace("T", " ").replace(/\//g, "-");
 }
+// How many whole days since the order came in (null if the date can't be read)
+function daysSince(value: string) {
+  const key = dateKey(value);
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const placed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - placed.getTime()) / 86400000);
+  return days >= 0 ? days : 0;
+}
+
+// Orders still with me: not yet shipped, completed, cancelled or void
+const isOpen = (o: Order) =>
+  !["shipped", "completed", "cancelled"].includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void");
+
+// Lead time is 2-3 weeks: green under a week, yellow up to 3 weeks, red past it
+function ageTone(days: number) {
+  if (days >= 21) return "border-red-500/50 bg-red-500/10 text-red-400";
+  if (days >= 7) return "border-yellow-500/40 bg-yellow-500/10 text-yellow-400";
+  return "border-green-500/40 bg-green-500/10 text-green-500";
+}
+const ageText = (days: number) => (days === 0 ? "TODAY" : days === 1 ? "1 DAY" : `${days} DAYS`);
+
 // Oldest order first (then by order number)
 const oldestFirst = (a: Order, b: Order) =>
   dateKey(a.date).localeCompare(dateKey(b.date)) || String(a.orderNumber).localeCompare(String(b.orderNumber));
@@ -279,6 +303,13 @@ export default function AdminPage() {
       awaiting: orders.filter((o) => matchesFilter(o, "awaiting")).length,
       toPack: orders.filter((o) => matchesFilter(o, "topack")).length,
       problems: orders.filter(isProblem).length,
+      // Days the oldest open order has been waiting
+      oldestOpen: orders
+        .filter(isOpen)
+        .reduce<number | null>((max, o) => {
+          const d = daysSince(o.date);
+          return d === null ? max : max === null ? d : Math.max(max, d);
+        }, null),
       // Revenue only counts orders that have actually been paid.
       revenue: paid.reduce((sum, o) => sum + amount(o.amountPaid || o.grandTotal), 0),
     };
@@ -319,11 +350,16 @@ export default function AdminPage() {
       <section className="mx-auto max-w-7xl">
         <AdminNav current="/admin" title="ADMIN DASHBOARD" subtitle="Manage orders, payments and packing progress." />
 
-        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
           <Stat label="TOTAL ORDERS" value={stats.total} />
           <Stat label="AWAITING PAYMENT" value={stats.awaiting} tone="yellow" />
           <Stat label="TO PACK" value={stats.toPack} />
           <Stat label="NEEDS ATTENTION" value={stats.problems} tone={stats.problems ? "red" : "grey"} />
+          <Stat
+            label="OLDEST OPEN ORDER"
+            value={stats.oldestOpen === null ? "—" : ageText(stats.oldestOpen)}
+            tone={stats.oldestOpen === null ? "grey" : stats.oldestOpen >= 21 ? "red" : stats.oldestOpen >= 7 ? "yellow" : "green"}
+          />
           <Stat label="REVENUE (PAID)" value={`R${stats.revenue.toFixed(2)}`} />
         </div>
 
@@ -385,6 +421,7 @@ export default function AdminPage() {
               {visibleOrders.map((order) => {
                 const currentStatus = order.orderStatus || "Processing";
                 const isUpdating = updatingOrder === order.orderNumber;
+                const age = isOpen(order) ? daysSince(order.date) : null;
 
                 return (
                   <div key={order.orderNumber} className="rounded-2xl border border-green-500/20 bg-black p-5">
@@ -393,7 +430,17 @@ export default function AdminPage() {
                         <p className="text-xs font-bold tracking-[0.25em] text-green-500">
                           ORDER · {order.date}
                         </p>
-                        <h3 className="mt-1 text-2xl font-black">{order.orderNumber}</h3>
+                        <div className="mt-1 flex flex-wrap items-center gap-3">
+                          <h3 className="text-2xl font-black">{order.orderNumber}</h3>
+                          {age !== null && (
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs font-black tracking-wider ${ageTone(age)}`}
+                              title="How long this order has been with you"
+                            >
+                              ⏱ {age === 0 ? "CAME IN TODAY" : `${ageText(age)} WITH YOU`}
+                            </span>
+                          )}
+                        </div>
                         <p className="mt-2 text-gray-300">{order.customerName || "No customer"}</p>
                         <p className="text-sm text-gray-500">
                           {order.customerPhone}
