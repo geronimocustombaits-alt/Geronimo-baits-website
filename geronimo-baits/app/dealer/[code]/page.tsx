@@ -188,8 +188,8 @@ export default function DealerOrderPage() {
             {[
               ["1", "Pick your packets", "Your usual colours are at the top. Tap + or type a number, or fill in your usual quantities in one go."],
               ["2", "Send your order", "Press Send order at the bottom. You'll get an order number straight away."],
-              ["3", "We make & pack it", `Every bait is handmade, so allow ${DEALER_LEAD_TIME}. In-stock colours can go sooner.`],
-              ["4", "Invoice & delivery", "Once it's packed we send your invoice and arrange delivery with you."],
+              ["3", "You get the invoice", "We send your invoice for the order before we start making it."],
+              ["4", "We make & deliver", `Every bait is handmade, so allow ${DEALER_LEAD_TIME}. In-stock colours can go sooner.`],
             ].map(([n, title, text]) => (
               <li key={n} className="rounded-2xl border border-green-500/15 bg-black/60 p-4">
                 <p className="text-2xl font-black text-green-500">{n}</p>
@@ -219,8 +219,8 @@ export default function DealerOrderPage() {
             <p className="text-xs font-black tracking-[0.25em] text-green-500">ORDER SENT ✓</p>
             <p className="mt-2 text-2xl font-black">{placed.orderNumber}</p>
             <p className="mt-1 text-gray-300">
-              {placed.packs} packets · {rand(placed.productTotal)} at dealer prices. Thank you! We&apos;ll be in touch
-              with the invoice.
+              {placed.packs} packets · {rand(placed.productTotal)} at dealer prices. Thank you! Your invoice will follow
+              shortly.
             </p>
           </div>
         )}

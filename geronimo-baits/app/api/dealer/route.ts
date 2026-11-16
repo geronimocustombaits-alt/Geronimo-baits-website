@@ -197,7 +197,7 @@ export async function POST(req: Request) {
           <p>${rows}</p>
           <p><strong>${packs} packets · R${productTotal.toFixed(2)}</strong> at dealer prices</p>
           ${note ? `<p><strong>Note:</strong> ${escapeHtml(note)}</p>` : ""}
-          <p>Pack it from the back office, then invoice it in Zoho and link the invoice number on the order.</p>`,
+          <p>Invoice it in Zoho and link the invoice number on the order in the back office, then make and pack it.</p>`,
       });
     }
   } catch (error) {
