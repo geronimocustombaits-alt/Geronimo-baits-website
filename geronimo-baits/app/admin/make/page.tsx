@@ -6,6 +6,9 @@ import { sheetAction } from "@/lib/sheetAction";
 
 // What to make for open orders: every bait on orders that aren't packed yet,
 // against what's on the shelf. "Make" = packs short.
+// PER ORDER: the shelf and curing packs go to the oldest order first, so each
+// order shows what's ready for it and what still has to be poured. Packs
+// already sent on a part-sent dealer order aren't counted.
 
 type Row = {
   sku: string;
@@ -23,7 +26,25 @@ type Row = {
   make?: number; // packs still to pour once curing is counted
 };
 type Batch = { sku: string; baits: number; status: string; packs: number };
-type OpenOrder = { orderNumber: string; customer: string; paymentStatus: string };
+type OrderLine = { sku: string; label: string; qty: number };
+type OpenOrder = {
+  orderNumber: string;
+  customer: string;
+  paymentStatus: string;
+  orderStatus?: string;
+  date?: string;
+  lines?: OrderLine[];
+};
+type PlannedLine = OrderLine & { shelf: number; curing: number; make: number; baits: number; custom: boolean; tracked: boolean };
+
+// "2026-10-29" or "11/11/2026 13:15" → sortable "2026-11-11 13:15"
+function sortableDate(value = "") {
+  const v = String(value).trim();
+  const uk = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+  if (uk) return `${uk[3]}-${uk[2].padStart(2, "0")}-${uk[1].padStart(2, "0")}${uk[4]}`;
+  return v;
+}
+const packSizeOf = (sku: string) => Number((String(sku).match(/-(\d+)$/) || [])[1]) || 0;
 
 export default function MakePage() {
   const [rows, setRows] = useState<Row[]>([]);
@@ -31,7 +52,8 @@ export default function MakePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [showCovered, setShowCovered] = useState(false);
-  const [view, setView] = useState<"bait" | "colour">("bait");
+  const [view, setView] = useState<"bait" | "colour" | "order">("bait");
+  const [curingBySku, setCuringBySku] = useState<Record<string, number>>({});
   const [curingTotal, setCuringTotal] = useState(0); // all packs to come from open batches
 
   async function load() {
@@ -53,6 +75,7 @@ export default function MakePage() {
         curingBySku[key] = (curingBySku[key] || 0) + packs;
       });
       setCuringTotal(Object.values(curingBySku).reduce((t, n) => t + n, 0));
+      setCuringBySku(curingBySku);
       setRows(
         (data.rows || []).map((r) => {
           const curing = r.sku ? curingBySku[r.sku.toUpperCase()] || 0 : 0;
@@ -93,6 +116,44 @@ export default function MakePage() {
     });
     return [...groups.values()].sort((a, b) => b.baits - a.baits || b.packs - a.packs || a.colour.localeCompare(b.colour));
   }, [short]);
+  // Per order: shelf, then curing packs, go to the oldest order first
+  const byOrder = useMemo(() => {
+    const shelf: Record<string, number> = {};
+    const tracked = new Set<string>();
+    rows.forEach((r) => {
+      if (!r.sku) return;
+      shelf[r.sku] = Math.max(r.left, 0);
+      if (r.tracked) tracked.add(r.sku);
+    });
+    const curing = { ...curingBySku };
+    return [...openOrders]
+      .sort((a, b) => sortableDate(a.date).localeCompare(sortableDate(b.date)))
+      .map((o) => {
+        const lines: PlannedLine[] = (o.lines || []).map((l) => {
+          const custom = /-CC-/.test(l.sku);
+          const isTracked = Boolean(l.sku) && tracked.has(l.sku) && !custom;
+          let rest = l.qty;
+          const fromShelf = isTracked ? Math.min(rest, shelf[l.sku] || 0) : 0;
+          if (isTracked) shelf[l.sku] -= fromShelf;
+          rest -= fromShelf;
+          const fromCuring = isTracked ? Math.min(rest, curing[l.sku] || 0) : 0;
+          if (isTracked) curing[l.sku] = (curing[l.sku] || 0) - fromCuring;
+          rest -= fromCuring;
+          return { ...l, shelf: fromShelf, curing: fromCuring, make: rest, baits: rest * packSizeOf(l.sku), custom, tracked: isTracked };
+        });
+        const make = lines.reduce((t, l) => t + l.make, 0);
+        return {
+          ...o,
+          planned: lines,
+          packs: lines.reduce((t, l) => t + l.qty, 0),
+          make,
+          curing: lines.reduce((t, l) => t + l.curing, 0),
+          baits: lines.reduce((t, l) => t + l.baits, 0),
+        };
+      });
+  }, [rows, openOrders, curingBySku]);
+  const [openCards, setOpenCards] = useState<Record<string, boolean>>({});
+
   const customerFor = (orderNumber: string) => openOrders.find((o) => o.orderNumber === orderNumber)?.customer || "";
 
   return (
@@ -122,6 +183,7 @@ export default function MakePage() {
                   [
                     ["bait", "PER BAIT"],
                     ["colour", "PER COLOUR"],
+                    ["order", "PER ORDER"],
                   ] as const
                 ).map(([key, text]) => (
                   <button
@@ -146,6 +208,96 @@ export default function MakePage() {
 
           {loading ? (
             <p className="p-8 text-center text-gray-400">Working it out...</p>
+          ) : view === "order" ? (
+            byOrder.length === 0 ? (
+              <p className="p-8 text-center text-gray-400">No open orders.</p>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs font-bold text-gray-500">
+                  Oldest order first. Shelf and curing packs go to the oldest order first.
+                </p>
+                {byOrder.map((o) => {
+                  const isOpen = openCards[o.orderNumber] ?? o.make > 0;
+                  return (
+                    <div key={o.orderNumber} className="rounded-2xl border border-green-500/20 bg-black">
+                      <button
+                        onClick={() => setOpenCards((c) => ({ ...c, [o.orderNumber]: !isOpen }))}
+                        className="flex w-full flex-wrap items-center justify-between gap-3 p-4 text-left"
+                      >
+                        <div className="min-w-0">
+                          <p className="text-lg font-black">
+                            {o.orderNumber} <span className="text-green-400">· {o.customer || "—"}</span>
+                          </p>
+                          <p className="text-xs font-bold text-gray-500">
+                            {o.date || ""}
+                            {o.paymentStatus ? ` · ${o.paymentStatus}` : ""}
+                            {o.orderStatus ? ` · ${o.orderStatus}` : ""}
+                            {` · ${o.packs} pack${o.packs === 1 ? "" : "s"} to send`}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-4 text-right">
+                          {o.make > 0 ? (
+                            <div>
+                              <p className="text-2xl font-black leading-none text-yellow-400">{o.make}</p>
+                              <p className="text-xs font-bold text-gray-400">
+                                packs to make{o.baits ? ` · ${o.baits} baits` : ""}
+                              </p>
+                            </div>
+                          ) : o.curing > 0 ? (
+                            <p className="font-black text-green-400">✔ ready once {o.curing} curing pack(s) are packed</p>
+                          ) : (
+                            <p className="font-black text-green-500">✔ all on the shelf</p>
+                          )}
+                          <span className="text-gray-500">{isOpen ? "▾" : "▸"}</span>
+                        </div>
+                      </button>
+                      {isOpen && (
+                        <div className="overflow-x-auto border-t border-white/5 px-4 pb-4">
+                          <table className="w-full min-w-[600px] text-left text-sm">
+                            <thead className="text-xs text-gray-500">
+                              <tr>
+                                <th className="py-2 pr-3">BAIT</th>
+                                <th className="py-2 pr-3 text-right">ON ORDER</th>
+                                <th className="py-2 pr-3 text-right">FROM SHELF</th>
+                                <th className="py-2 pr-3 text-right">CURING</th>
+                                <th className="py-2 pr-3 text-right">MAKE (PACKS)</th>
+                                <th className="py-2 text-right">BAITS TO POUR</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-white/5">
+                              {[...o.planned]
+                                .sort((a, b) => b.make - a.make)
+                                .map((l, i) => (
+                                  <tr key={`${l.sku}-${i}`} className={l.make === 0 ? "text-gray-500" : ""}>
+                                    <td className="py-2 pr-3">
+                                      <p className={`font-bold ${l.make === 0 ? "text-gray-400" : ""}`}>{l.label}</p>
+                                      <p className="text-xs text-gray-500">
+                                        {l.sku || "no SKU"}
+                                        {(l.custom || !l.tracked) && (
+                                          <span className="ml-2 rounded bg-yellow-500/15 px-1.5 py-0.5 font-bold text-yellow-400">
+                                            {l.custom ? "CUSTOM" : "NOT TRACKED"}
+                                          </span>
+                                        )}
+                                      </p>
+                                    </td>
+                                    <td className="py-2 pr-3 text-right">{l.qty}</td>
+                                    <td className="py-2 pr-3 text-right">{l.shelf || "–"}</td>
+                                    <td className="py-2 pr-3 text-right font-bold text-green-400">{l.curing || "–"}</td>
+                                    <td className={`py-2 pr-3 text-right text-lg font-black ${l.make ? "text-yellow-400" : "text-green-500"}`}>
+                                      {l.make || "✔"}
+                                    </td>
+                                    <td className="py-2 text-right font-bold">{l.baits || "–"}</td>
+                                  </tr>
+                                ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )
           ) : short.length === 0 ? (
             <p className="rounded-2xl border border-green-500/30 bg-green-500/5 p-8 text-center font-bold text-green-400">
               ✔ Everything on open orders is on the shelf.

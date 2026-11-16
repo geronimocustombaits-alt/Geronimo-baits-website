@@ -811,6 +811,25 @@ function asDateText(value) {
 // Open = not packed / shipped / completed / cancelled. Shortfall per SKU against
 // what's Left on the shelf, plus the orders waiting on it.
 
+// Packs already sent per order and SKU (all "PACK <order>" / "PACK <order> #n"
+// sales in the Stock Log), so part-sent dealer orders only count what's left.
+function packedByOrder(ss) {
+  const log = logSheet(ss);
+  const out = {};
+  const last = log.getLastRow();
+  if (last < 2) return out;
+  log.getRange(2, 2, last - 1, 4).getValues().forEach(r => { // TYPE, SKU, QTY, REFERENCE
+    if (r[0] !== "SALE") return;
+    const m = String(r[3]).match(/^PACK (.+?)(?: #\d+)?$/);
+    if (!m) return;
+    const order = m[1].trim();
+    const sku = String(r[1]).trim().toUpperCase();
+    if (!out[order]) out[order] = {};
+    out[order][sku] = (out[order][sku] || 0) + Math.abs(num(r[2]));
+  });
+  return out;
+}
+
 function getMakeList(ss) {
   const inv = getInventory(ss).items;
   const bySku = {};
@@ -819,6 +838,7 @@ function getMakeList(ss) {
   const orders = sheetRows(ss.getSheetByName(SHEET_NAME));
   const need = {};
   const openOrders = [];
+  const sentBy = packedByOrder(ss);
 
   orders.forEach(r => {
     const orderNumber = String(r[0] || "").trim();
@@ -826,14 +846,29 @@ function getMakeList(ss) {
     const status = String(r[COL.ORDER_STATUS - 1] || "").toLowerCase();
     const pay = String(r[COL.PAYMENT_STATUS - 1] || "").toLowerCase();
     if (DONE_STATUSES.includes(status) || pay === "void") return;
-    openOrders.push({ orderNumber, customer: String(r[2] || ""), paymentStatus: String(r[COL.PAYMENT_STATUS - 1] || "") });
+    const lines = [];
+    const sentLeft = Object.assign({}, sentBy[orderNumber] || {});
+    openOrders.push({
+      orderNumber,
+      customer: String(r[2] || ""),
+      paymentStatus: String(r[COL.PAYMENT_STATUS - 1] || ""),
+      orderStatus: String(r[COL.ORDER_STATUS - 1] || ""),
+      date: asDateText(r[1]),
+      lines,
+    });
 
     String(r[COL.ITEMS - 1] || "").split("\n").forEach(line => {
-      const qty = parseInt(line, 10);
-      if (!(qty > 0)) return;
+      const ordered = parseInt(line, 10);
+      if (!(ordered > 0)) return;
       const hasSku = line.includes("|");
       const sku = hasSku ? line.split("|").pop().trim().toUpperCase() : "";
       const label = (hasSku ? line.slice(0, line.lastIndexOf("|")) : line).replace(/^\s*\d+\s*x\s*/i, "").trim();
+      // Packs already sent on a part-sent order don't need making
+      const sent = sku ? Math.min(sentLeft[sku] || 0, ordered) : 0;
+      if (sku) sentLeft[sku] = (sentLeft[sku] || 0) - sent;
+      const qty = ordered - sent;
+      if (!(qty > 0)) return;
+      lines.push({ sku, label, qty });
       const key = sku || `NOSKU:${label}`;
       if (!need[key]) need[key] = { sku, label, needed: 0, orders: [] };
       need[key].needed += qty;
