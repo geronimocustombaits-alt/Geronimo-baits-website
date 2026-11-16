@@ -16,6 +16,8 @@ const ACTIONS: Record<string, string[]> = {
   getAmbassadors: [],
   claimReward: ["code"],
   setReferral: ["orderNumber", "code"],
+  getDealers: [],
+  linkInvoice: ["orderNumber", "invoice"],
 };
 
 export async function POST(req: Request) {

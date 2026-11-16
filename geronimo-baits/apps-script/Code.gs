@@ -38,6 +38,7 @@ const COL = {
   AMOUNT_PAID: 16,     // P
   HUNT_BOX: 17,        // Q
   REFERRAL: 18,        // R  ambassador code
+  ZOHO_INVOICE: 19,    // S  Zoho invoice linked to a dealer order
 };
 
 // Inventory blocks: most ranges sit in columns A–L, Wargrubs sit in O–T.
@@ -81,6 +82,10 @@ function doPost(e) {
       getAmbassadors: () => getAmbassadors(ss),
       claimReward: () => claimReward(ss, data),
       setReferral: () => setReferral(ss, sheet, data),
+      getDealers: () => getDealers(ss),
+      getDealer: () => getDealer(ss, data),
+      addDealerOrder: () => addDealerOrder(ss, sheet, data),
+      linkInvoice: () => linkInvoice(sheet, data),
     };
     if (BACK_OFFICE[data.action]) {
       if (!secretOk(data)) return json({ success: false, error: "Not allowed" });
@@ -499,6 +504,15 @@ function upsertZohoOrder(ss, invoice) {
 
   const row = findRow(sheet, invoice.invoice_number);
   if (row < 0) {
+    // A dealer order already on the Orders tab that this invoice was linked to:
+    // only refresh its payment, so the order isn't listed (or packed) twice.
+    const linked = findLinkedRow(sheet, invoice.invoice_number);
+    if (linked > 0) {
+      const payment = zohoPaymentStatus(invoice);
+      sheet.getRange(linked, COL.PAYMENT_STATUS).setValue(payment === "Pending" || payment === "Draft" ? "Invoiced" : payment);
+      sheet.getRange(linked, COL.AMOUNT_PAID).setValue(paid > 0 ? paid : "");
+      return;
+    }
     sheet.appendRow(values);
     return;
   }
@@ -510,7 +524,15 @@ function upsertZohoOrder(ss, invoice) {
 function markZohoOrderVoid(ss, invoiceNumber) {
   const sheet = ss.getSheetByName(SHEET_NAME);
   const row = findRow(sheet, invoiceNumber);
-  if (row < 0) return;
+  if (row < 0) {
+    // Linked dealer order: the order itself still stands, only the invoice went
+    const linked = findLinkedRow(sheet, invoiceNumber);
+    if (linked > 0) {
+      sheet.getRange(linked, COL.PAYMENT_STATUS).setValue("Invoice voided - CHECK");
+      sheet.getRange(linked, COL.ZOHO_INVOICE).setValue("");
+    }
+    return;
+  }
   sheet.getRange(row, COL.PAYMENT_STATUS).setValue("Void");
   sheet.getRange(row, COL.ORDER_STATUS).setValue("Cancelled");
 }
@@ -1270,4 +1292,180 @@ function setReferral(ss, sheet, data) {
   if (code && !readAmbassadors(ss).some(a => a.code === code)) return { success: false, error: "Unknown ambassador code" };
   sheet.getRange(row, COL.REFERRAL).setValue(code);
   return { success: true };
+}
+
+
+// ═════════════════════════════ Dealer orders ═════════════════════════════
+// Each shop on the Retailers tab gets a private order link (/dealer/<code>).
+// Their order lands on the Orders tab as a "Dealer" order (ORDER # DL-…),
+// priced at dealer prices, so it's packed and scanned like any other order.
+// Once you've invoiced it in Zoho, link the invoice number on the dashboard
+// (column S): the Zoho sync then updates that order's payment instead of
+// adding the invoice as a second order. Minimum-purchase progress keeps
+// coming from the Zoho invoices, as before.
+//
+// Retailers tab columns G–K (added automatically):
+//   ORDER CODE (filled in for you), CONTACT NAME, PHONE, EMAIL, DELIVERY
+
+const DEALER_COLS = ["ORDER CODE", "CONTACT NAME", "PHONE", "EMAIL", "DELIVERY"];
+const DEALER_FIRST_COL = 7; // G
+
+function dealerSheet(ss) {
+  const sh = ensureSheet(ss, RETAILER_SHEET, ["ZOHO CUSTOMER NAME", "START DATE", "MIN PACKS", "PERIOD MONTHS", "MANDATE MONTHS", "NOTES"]);
+  const head = sh.getRange(1, DEALER_FIRST_COL, 1, DEALER_COLS.length).getValues()[0];
+  if (head.some((h, i) => String(h).trim() !== DEALER_COLS[i])) {
+    sh.getRange(1, DEALER_FIRST_COL, 1, DEALER_COLS.length).setValues([DEALER_COLS]).setFontWeight("bold");
+  }
+  return sh;
+}
+
+function newDealerCode() {
+  return Utilities.getUuid().replace(/-/g, "").slice(0, 12).toUpperCase();
+}
+
+// Every shop on the Retailers tab, with its order code (made if missing)
+function readDealers(ss) {
+  const sh = dealerSheet(ss);
+  if (sh.getLastRow() < 2) return [];
+  const rows = sh.getRange(2, 1, sh.getLastRow() - 1, DEALER_FIRST_COL + DEALER_COLS.length - 1).getValues();
+  const out = [];
+  rows.forEach((r, i) => {
+    const name = String(r[0] || "").trim();
+    if (!name) return;
+    let code = String(r[DEALER_FIRST_COL - 1] || "").trim().toUpperCase();
+    if (!code) {
+      code = newDealerCode();
+      sh.getRange(i + 2, DEALER_FIRST_COL).setValue(code);
+    }
+    const phone = String(r[DEALER_FIRST_COL + 1] || "").trim();
+    out.push({
+      row: i + 2,
+      name,
+      code,
+      contactName: String(r[DEALER_FIRST_COL] || "").trim(),
+      phone: phone.replace(/^'/, ""),
+      email: String(r[DEALER_FIRST_COL + 2] || "").trim(),
+      delivery: String(r[DEALER_FIRST_COL + 3] || "").trim(),
+      minPacks: num(r[2]) || 0,
+    });
+  });
+  return out;
+}
+
+function getDealers(ss) {
+  return { success: true, dealers: readDealers(ss).map(d => ({ name: d.name, code: d.code, contactName: d.contactName, phone: d.phone })) };
+}
+
+function findDealer(ss, code) {
+  const c = String(code || "").trim().toUpperCase();
+  if (!/^[A-Z0-9]{8,20}$/.test(c)) return null;
+  return readDealers(ss).find(d => d.code === c) || null;
+}
+
+// The current minimum-purchase period for this shop, from the sales dashboard
+function dealerProgress(name) {
+  const sales = getSales();
+  const retailers = (sales.summary && sales.summary.retailers) || [];
+  const r = retailers.find(x => String(x.customer).trim().toLowerCase() === name.toLowerCase());
+  if (!r) return null;
+  const p = (r.periods || []).find(x => x.current);
+  return p ? { packs: p.packs, target: p.target, to: p.to, daysLeft: p.daysLeft } : null;
+}
+
+function getDealer(ss, data) {
+  const d = findDealer(ss, data.code);
+  if (!d) return { success: false, error: "Unknown order link" };
+  return {
+    success: true,
+    dealer: { name: d.name, contactName: d.contactName, delivery: d.delivery },
+    progress: dealerProgress(d.name),
+  };
+}
+
+// The website works out the prices; this only checks the link and saves the row.
+function addDealerOrder(ss, sheet, data) {
+  const d = findDealer(ss, data.code);
+  if (!d) return { success: false, error: "Unknown order link" };
+  const orderNumber = String(data.orderNumber || "").trim();
+  if (!/^DL-\d{6}-[A-Z0-9]{4}$/.test(orderNumber)) return { success: false, error: "Bad order number" };
+  if (findRow(sheet, orderNumber) > 0) return { success: true, orderNumber }; // sent twice
+
+  const items = String(data.items || "").slice(0, 5000);
+  if (!parseOrderItems(items).length) return { success: false, error: "No items" };
+  const total = num(data.productTotal);
+  const note = String(data.note || "").replace(/\s+/g, " ").trim().slice(0, 300);
+  const delivery = d.delivery || "Dealer delivery";
+
+  sheet.appendRow([
+    orderNumber,
+    new Date(),
+    d.name,
+    d.phone ? `'${d.phone}` : "",
+    d.email,
+    delivery,
+    items,
+    total,
+    0,
+    total,
+    "Dealer",
+    "Awaiting invoice",
+    "Processing",
+    "",
+    note ? `Note: ${note}` : "",
+    "",
+    "",
+    "",
+    "",
+  ]);
+  return { success: true, orderNumber, dealer: d.name, email: d.email };
+}
+
+function findLinkedRow(sheet, invoiceNumber) {
+  const last = sheet.getLastRow();
+  if (last < 2 || sheet.getLastColumn() < COL.ZOHO_INVOICE) return -1;
+  const values = sheet.getRange(2, COL.ZOHO_INVOICE, last - 1, 1).getValues();
+  const want = String(invoiceNumber).trim().toUpperCase();
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim().toUpperCase() === want) return i + 2;
+  }
+  return -1;
+}
+
+function linkInvoice(sheet, data) {
+  const row = findRow(sheet, data.orderNumber);
+  if (row < 0) return { success: false, error: "Order not found" };
+  if (String(sheet.getRange(1, COL.ZOHO_INVOICE).getValue()).trim() === "") {
+    sheet.getRange(1, COL.ZOHO_INVOICE).setValue("ZOHO INVOICE").setFontWeight("bold");
+  }
+  const invoice = String(data.invoice || "").trim().toUpperCase();
+  if (invoice && !/^INV-\d{3,}$/.test(invoice)) return { success: false, error: "Invoice numbers look like INV-000052" };
+  // The Zoho sync may already have added this invoice as its own order. If that
+  // copy hasn't been packed yet, fold its payment into the dealer order and
+  // remove the copy, so the order isn't packed twice.
+  let payment = "";
+  let paidAmount = "";
+  const copy = invoice ? findRow(sheet, invoice) : -1;
+  if (copy > 0) {
+    const copyStatus = String(sheet.getRange(copy, COL.ORDER_STATUS).getValue()).toLowerCase();
+    const copySource = String(sheet.getRange(copy, 11).getValue()).trim(); // K: PAYMENT METHOD
+    if (copySource !== "Zoho" || DONE_STATUSES.includes(copyStatus)) {
+      return { success: false, error: `${invoice} is already on the Orders tab as its own ${copyStatus || "open"} order. Check it before linking.` };
+    }
+    payment = String(sheet.getRange(copy, COL.PAYMENT_STATUS).getValue());
+    paidAmount = sheet.getRange(copy, COL.AMOUNT_PAID).getValue();
+    sheet.deleteRow(copy);
+  }
+
+  const target = findRow(sheet, data.orderNumber); // rows may have moved up
+  sheet.getRange(target, COL.ZOHO_INVOICE).setValue(invoice);
+  const pay = String(sheet.getRange(target, COL.PAYMENT_STATUS).getValue()).toLowerCase();
+  if (!invoice) {
+    if (pay === "invoiced") sheet.getRange(target, COL.PAYMENT_STATUS).setValue("Awaiting invoice");
+  } else if (payment && !/^(pending|draft)$/i.test(payment)) {
+    sheet.getRange(target, COL.PAYMENT_STATUS).setValue(payment);
+    sheet.getRange(target, COL.AMOUNT_PAID).setValue(paidAmount);
+  } else if (pay === "awaiting invoice" || pay === "") {
+    sheet.getRange(target, COL.PAYMENT_STATUS).setValue("Invoiced");
+  }
+  return { success: true, invoice, mergedCopy: copy > 0 };
 }

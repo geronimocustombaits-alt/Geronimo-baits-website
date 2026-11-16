@@ -9,6 +9,7 @@ const LINKS = [
   { href: "/admin/stock", label: "STOCK" },
   { href: "/admin/sales", label: "SALES" },
   { href: "/admin/recap", label: "RECAP" },
+  { href: "/admin/dealers", label: "DEALERS" },
   { href: "/admin/ambassadors", label: "AMBASSADORS" },
   { href: "/admin/labels", label: "🏷 LABELS" },
   { href: "/admin/scan", label: "📷 SCANNER" },

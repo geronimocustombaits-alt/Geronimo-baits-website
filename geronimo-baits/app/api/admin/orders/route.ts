@@ -51,6 +51,7 @@ export async function GET(req: Request) {
           amountPaid: get("AMOUNT PAID"),
           huntBox: get("HUNT BOX"),
           referral: get("REFERRAL"),
+          zohoInvoice: get("ZOHO INVOICE"),
         };
       })
       .filter((order) => order.orderNumber);

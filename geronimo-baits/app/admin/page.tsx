@@ -24,6 +24,7 @@ type Order = {
   amountPaid: string;
   huntBox: string;
   referral: string;
+  zohoInvoice: string;
 };
 
 type Filter = "all" | "awaiting" | "topack" | "shipped" | "completed" | "problems";
@@ -116,6 +117,8 @@ const amount = (value: string) => {
 
 const lower = (value: string) => String(value || "").toLowerCase();
 const isPaid = (o: Order) => lower(o.paymentStatus).startsWith("paid");
+// Shop orders from a dealer link: packed first, invoiced in Zoho afterwards
+const isDealer = (o: Order) => lower(o.paymentMethod) === "dealer";
 const isProblem = (o: Order) =>
   lower(o.paymentStatus).includes("mismatch") ||
   lower(o.paymentStatus).includes("check") ||
@@ -127,7 +130,7 @@ function matchesFilter(order: Order, filter: Filter) {
     case "awaiting":
       return lower(order.paymentStatus) === "pending";
     case "topack":
-      return isPaid(order) && !["shipped", "completed"].includes(status);
+      return (isPaid(order) || isDealer(order)) && !["shipped", "completed", "cancelled"].includes(status);
     case "shipped":
       return status === "shipped";
     case "completed":
@@ -142,6 +145,7 @@ function matchesFilter(order: Order, filter: Filter) {
 function paymentColour(order: Order) {
   if (isProblem(order)) return "text-red-400";
   if (isPaid(order)) return "text-green-500";
+  if (lower(order.paymentStatus) === "invoiced") return "text-blue-400";
   return "text-yellow-400";
 }
 
@@ -231,6 +235,39 @@ export default function AdminPage() {
       return;
     }
     setOrders((current) => current.map((o) => (o.orderNumber === orderNumber ? { ...o, referral: code } : o)));
+  }
+
+  const [invoiceDrafts, setInvoiceDrafts] = useState<Record<string, string>>({});
+
+  // Dealer orders: link the Zoho invoice so the Zoho sync updates this order
+  // instead of adding the invoice as a second order
+  async function linkInvoice(orderNumber: string) {
+    const raw = (invoiceDrafts[orderNumber] || "").trim().toUpperCase();
+    const invoice = /^\d+$/.test(raw) ? `INV-${raw.padStart(6, "0")}` : raw;
+    setError("");
+    const data = await sheetAction<{ invoice: string; mergedCopy?: boolean }>("linkInvoice", { orderNumber, invoice });
+    if (!data.success) {
+      setError(`Couldn't link the invoice to ${orderNumber}: ${data.error || "try again"}`);
+      return;
+    }
+    if (data.mergedCopy) loadOrders(); // the Zoho copy of the invoice was folded in
+    setOrders((current) =>
+      current.map((o) =>
+        o.orderNumber === orderNumber
+          ? {
+              ...o,
+              zohoInvoice: invoice,
+              paymentStatus:
+                invoice && ["awaiting invoice", ""].includes(lower(o.paymentStatus))
+                  ? "Invoiced"
+                  : !invoice && lower(o.paymentStatus) === "invoiced"
+                    ? "Awaiting invoice"
+                    : o.paymentStatus,
+            }
+          : o
+      )
+    );
+    setInvoiceDrafts((d) => ({ ...d, [orderNumber]: "" }));
   }
 
   async function loadOrders() {
@@ -432,6 +469,11 @@ export default function AdminPage() {
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-3">
                           <h3 className="text-2xl font-black">{order.orderNumber}</h3>
+                          {isDealer(order) && (
+                            <span className="rounded-full border border-blue-400/50 bg-blue-400/10 px-3 py-1 text-xs font-black tracking-wider text-blue-400">
+                              🏪 DEALER
+                            </span>
+                          )}
                           {age !== null && (
                             <span
                               className={`rounded-full border px-3 py-1 text-xs font-black tracking-wider ${ageTone(age)}`}
@@ -474,10 +516,56 @@ export default function AdminPage() {
                             </span>
                           </>
                         ) : (
-                          order.deliveryMethod || "Not supplied"
+                          <>
+                            {order.deliveryMethod || "Not supplied"}
+                            {isDealer(order) && order.deliveryAddress && (
+                              <span className="block text-xs font-normal text-yellow-400">{order.deliveryAddress}</span>
+                            )}
+                          </>
                         )}
                       </Info>
                     </div>
+
+                    {isDealer(order) && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-500">
+                        ZOHO INVOICE
+                        {order.zohoInvoice ? (
+                          <>
+                            <span className="rounded-lg border border-blue-400/40 px-3 py-2 text-sm font-black text-blue-400">
+                              {order.zohoInvoice}
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Unlink ${order.zohoInvoice} from ${order.orderNumber}?`)) {
+                                  setInvoiceDrafts((d) => ({ ...d, [order.orderNumber]: "" }));
+                                  sheetAction("linkInvoice", { orderNumber: order.orderNumber, invoice: "" }).then(loadOrders);
+                                }
+                              }}
+                              className="text-xs text-gray-500 underline hover:text-red-400"
+                            >
+                              unlink
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              value={invoiceDrafts[order.orderNumber] || ""}
+                              onChange={(e) => setInvoiceDrafts((d) => ({ ...d, [order.orderNumber]: e.target.value }))}
+                              placeholder="INV-000052 or 52"
+                              className="w-40 rounded-lg border border-green-500/30 bg-black px-3 py-2 text-sm font-bold text-white outline-none focus:border-green-500"
+                            />
+                            <button
+                              disabled={!(invoiceDrafts[order.orderNumber] || "").trim()}
+                              onClick={() => linkInvoice(order.orderNumber)}
+                              className="rounded-lg border border-green-500/40 px-3 py-2 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black disabled:opacity-40"
+                            >
+                              LINK
+                            </button>
+                            <span className="font-normal">Invoice it in Zoho, then link it here</span>
+                          </>
+                        )}
+                      </div>
+                    )}
 
                     <label className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-500">
                       AMBASSADOR
