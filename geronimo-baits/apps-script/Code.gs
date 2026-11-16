@@ -1561,7 +1561,7 @@ function createDealerInvoice(dealer, orderNumber, lines, note) {
 
   const body = {
     customer_id: customerId,
-    subject: "Geronimo Baits",
+    subject_content: "Geronimo Baits", // the invoice's Subject field
     line_items: lineItems,
     notes: `Dealer order ${orderNumber}${note ? `\nNote: ${note}` : ""}`,
   };
