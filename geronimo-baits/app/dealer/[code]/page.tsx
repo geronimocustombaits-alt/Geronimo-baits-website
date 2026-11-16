@@ -77,7 +77,9 @@ export default function DealerOrderPage() {
       list
         .filter((p) => !q || `${p.bait} ${p.colour} ${p.size} ${p.sku}`.toLowerCase().includes(q))
         .forEach((p) => {
-          const key = `${p.bait}${p.size ? ` ${p.size}` : ""}`;
+          // Bait names often carry the size already ('Warcraws 3.3"'): don't add it twice
+          const size = String(p.size || "").trim();
+          const key = size && !p.bait.replace(/["”]/g, "").includes(size.replace(/["”]/g, "")) ? `${p.bait} ${size}` : p.bait;
           map.set(key, [...(map.get(key) || []), p]);
         });
       return [...map.entries()];
