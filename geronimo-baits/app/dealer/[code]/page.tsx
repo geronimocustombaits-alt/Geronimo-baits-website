@@ -145,8 +145,8 @@ export default function DealerOrderPage() {
 
   if (loadError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-black px-6 text-center text-white">
-        <div>
+      <main className="flex min-h-screen items-center justify-center bg-black bg-cover bg-center bg-fixed px-6 text-center text-white" style={{ backgroundImage: "url('/bg-main.webp')" }}>
+        <div className="rounded-3xl border border-green-500/30 bg-black/85 p-8 backdrop-blur-md">
           <p className="text-sm font-black tracking-[0.4em] text-green-500">GERONIMO BAITS</p>
           <h1 className="mt-4 text-3xl font-black">ORDER LINK NOT FOUND</h1>
           <p className="mt-3 text-gray-400">{loadError}</p>
@@ -160,24 +160,30 @@ export default function DealerOrderPage() {
 
   if (!data) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-black text-gray-400">Loading order form...</main>
+      <main className="flex min-h-screen items-center justify-center bg-black bg-cover bg-center bg-fixed text-gray-300" style={{ backgroundImage: "url('/bg-main.webp')" }}>
+        <p className="rounded-2xl border border-green-500/30 bg-black/85 px-6 py-4 font-bold backdrop-blur-md">Loading order form...</p>
+      </main>
     );
   }
 
   const progress = data.progress;
 
   return (
-    <main className="min-h-screen bg-black px-4 pb-40 pt-10 text-white md:px-6">
+    <main className="min-h-screen bg-black bg-cover bg-center bg-fixed px-4 pb-40 pt-10 text-white md:px-6" style={{ backgroundImage: "url('/bg-main.webp')" }}>
       <section className="mx-auto max-w-4xl">
-        <p className="text-sm font-black tracking-[0.4em] text-green-500">GERONIMO BAITS · DEALER ORDERS</p>
-        <h1 className="mt-3 text-4xl font-black md:text-5xl">{data.dealer.name.toUpperCase()}</h1>
-        <p className="mt-3 text-gray-400">
+        <div className="rounded-3xl border border-green-500/30 bg-black/85 p-6 text-center backdrop-blur-md md:p-8">
+        <img src="/logo.png" alt="Geronimo Baits" className="mx-auto h-24 w-auto md:h-28" />
+        <p className="mt-3 text-sm font-black tracking-[0.4em] text-green-500">DEALER ORDERS</p>
+        <h1 className="mt-3 text-3xl font-black md:text-5xl">{data.dealer.name.toUpperCase()}</h1>
+        <p className="mt-3 text-gray-300">
           Type how many packets you want of each colour and send. Prices are dealer prices per packet. Orders take{" "}
           {DEALER_LEAD_TIME} to make and send; you&apos;ll get the invoice once it&apos;s packed.
         </p>
+        <p className="mt-4 text-xs font-black tracking-[0.3em] text-green-500">BUILT TO HUNT · HANDMADE IN SA</p>
+        </div>
 
         {placed && (
-          <div className="mt-6 rounded-2xl border border-green-500 bg-green-500/10 p-5">
+          <div className="mt-6 rounded-2xl border border-green-500 bg-black/85 p-5 backdrop-blur-md">
             <p className="text-xs font-black tracking-[0.25em] text-green-500">ORDER SENT ✓</p>
             <p className="mt-2 text-2xl font-black">{placed.orderNumber}</p>
             <p className="mt-1 text-gray-300">
@@ -188,7 +194,7 @@ export default function DealerOrderPage() {
         )}
 
         {progress && progress.target > 0 && (
-          <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/70 p-5">
+          <div className="mt-6 rounded-2xl border border-green-500/20 bg-black/85 p-5 backdrop-blur-md">
             <p className="text-xs font-bold text-gray-400">THIS PERIOD (INVOICED ORDERS)</p>
             <p className="mt-2 text-2xl font-black text-green-500">
               {progress.packs} / {progress.target} packets
@@ -210,13 +216,13 @@ export default function DealerOrderPage() {
           placeholder="Search bait or colour..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="mt-8 w-full rounded-xl border border-green-500/30 bg-black px-4 py-3 text-white outline-none focus:border-green-500"
+          className="mt-8 w-full rounded-xl border border-green-500/30 bg-black/85 px-4 py-3 backdrop-blur-md text-white outline-none focus:border-green-500"
         />
 
         {hasUsual && (
           <button
             onClick={fillUsual}
-            className="mt-4 w-full rounded-xl border border-green-500 px-4 py-3 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
+            className="mt-4 w-full rounded-xl border border-green-500 bg-black/85 px-4 py-3 backdrop-blur-md text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
           >
             ↻ FILL IN MY USUAL QUANTITIES
           </button>
@@ -225,12 +231,12 @@ export default function DealerOrderPage() {
         {sections.map((section) => (
         <div key={section.id} className="mt-8">
           <div className="flex items-baseline justify-between gap-3">
-            <h2 className="text-sm font-black tracking-[0.3em] text-green-500">{section.title}</h2>
-            {section.hint && <p className="text-xs text-gray-500">{section.hint}</p>}
+            <h2 className="rounded-lg bg-black/80 px-3 py-1 text-sm font-black tracking-[0.3em] text-green-500">{section.title}</h2>
+            {section.hint && <p className="rounded-lg bg-black/80 px-3 py-1 text-xs text-gray-400">{section.hint}</p>}
           </div>
         <div className="mt-4 grid gap-6">
           {section.groups.map(([name, items]) => (
-            <div key={name} className="rounded-2xl border border-green-500/20 bg-black p-4 md:p-5">
+            <div key={name} className="rounded-2xl border border-green-500/25 bg-black/85 p-4 backdrop-blur-md md:p-5">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-xl font-black">{name.toUpperCase()}</h2>
                 <p className="text-sm font-black text-green-500">{rand(items[0].price)} / pkt</p>
@@ -284,7 +290,7 @@ export default function DealerOrderPage() {
         ))}
         {groupCount === 0 && <p className="mt-8 text-center text-gray-500">Nothing matches that search.</p>}
 
-        <label className="mt-8 block text-xs font-bold text-gray-400">
+        <label className="mt-8 block rounded-2xl border border-green-500/25 bg-black/85 p-4 text-xs font-bold text-gray-400 backdrop-blur-md">
           NOTE (OPTIONAL)
           <textarea
             value={note}
