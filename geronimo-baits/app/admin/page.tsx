@@ -79,7 +79,28 @@ function parseLine(line: string) {
 // First in, first out: shelf stock goes to the oldest open orders first. A line
 // gets a ✓ when the stock left after older orders still covers it. Returns
 // "orderNumber|lineIndex" keys for the lines that are covered.
-function fifoCovered(orders: Order[], leftBySku: Record<string, number> | null) {
+// Packs already sent per line of an order (part sends to a dealer), from the
+// packs sent per SKU. A SKU on two lines fills the first line first.
+function sentPerLine(items: string, sentBySku: Record<string, number> | undefined) {
+  const left: Record<string, number> = { ...(sentBySku || {}) };
+  return String(items || "")
+    .split("\n")
+    .map((line) => {
+      const { qty, sku } = parseLine(line);
+      if (!qty || !sku || !left[sku]) return 0;
+      const sent = Math.min(left[sku], qty);
+      left[sku] -= sent;
+      return sent;
+    });
+}
+
+const isPartSent = (o: Order) => lower(o.orderStatus).startsWith("part sent");
+
+function fifoCovered(
+  orders: Order[],
+  leftBySku: Record<string, number> | null,
+  sentByOrder: Record<string, Record<string, number>> = {}
+) {
   const covered = new Set<string>();
   if (!leftBySku) return covered;
   const left: Record<string, number> = {};
@@ -87,16 +108,20 @@ function fifoCovered(orders: Order[], leftBySku: Record<string, number> | null) 
   const open = orders
     .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void"))
     .sort(oldestFirst);
-  open.forEach((o) =>
+  open.forEach((o) => {
+    const sent = sentPerLine(o.items, sentByOrder[o.orderNumber]);
     String(o.items || "")
       .split("\n")
       .forEach((line, i) => {
-        const { qty, sku } = parseLine(line);
+        const parsed = parseLine(line);
+        const sku = parsed.sku;
+        const qty = parsed.qty - (sent[i] || 0); // packs already sent are off the shelf
+        if (parsed.qty && qty <= 0) return;
         if (!qty || !sku || /-CC-/.test(sku) || !(sku in left)) return;
         if (left[sku] >= qty) covered.add(`${o.orderNumber}|${i}`);
         left[sku] = Math.max(left[sku] - qty, 0); // the older order holds these packs either way
-      })
-  );
+      });
+  });
   return covered;
 }
 
@@ -206,6 +231,33 @@ export default function AdminPage() {
   const [packing, setPacking] = useState<Order | null>(null);
   const [ambassadorCodes, setAmbassadorCodes] = useState<{ code: string; name: string }[]>([]);
   const [leftBySku, setLeftBySku] = useState<Record<string, number> | null>(null);
+  // Packs already sent per SKU, for dealer orders sent in parts
+  const [sentByOrder, setSentByOrder] = useState<Record<string, Record<string, number>>>({});
+
+  async function loadSent(orderNumber: string) {
+    try {
+      const r = await fetch("/api/admin/pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderNumber, progressOnly: true }),
+      });
+      const d = await r.json();
+      if (d?.success && d.packed && typeof d.packed === "object") {
+        setSentByOrder((cur) => ({ ...cur, [orderNumber]: d.packed }));
+      }
+    } catch {
+      // leave the lines as they are
+    }
+  }
+
+  const partSentKey = orders
+    .filter(isPartSent)
+    .map((o) => o.orderNumber)
+    .join(",");
+  useEffect(() => {
+    if (!partSentKey) return;
+    partSentKey.split(",").forEach((n) => loadSent(n));
+  }, [partSentKey]);
 
   // Stock on the shelf (Left) per SKU, for the ✓ next to each order line
   useEffect(() => {
@@ -352,7 +404,7 @@ export default function AdminPage() {
     };
   }, [orders]);
 
-  const covered = useMemo(() => fifoCovered(orders, leftBySku), [orders, leftBySku]);
+  const covered = useMemo(() => fifoCovered(orders, leftBySku, sentByOrder), [orders, leftBySku, sentByOrder]);
 
   const visibleOrders = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -377,6 +429,7 @@ export default function AdminPage() {
           onClose={() => setPacking(null)}
           onPacked={(orderNumber, orderStatus) => {
             setPacking(null);
+            if (orderStatus.toLowerCase().startsWith("part sent")) loadSent(orderNumber);
             // Show it straight away; the published sheet can lag behind.
             setOrders((current) =>
               current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus } : o))
@@ -594,16 +647,39 @@ export default function AdminPage() {
                         <p className="mt-2 text-sm text-gray-300">No items listed</p>
                       ) : (
                         <ul className="mt-2 space-y-0.5 text-sm text-gray-300">
-                          {order.items.split("\n").map((line, i) => (
-                            <li key={i} className="flex flex-wrap items-baseline gap-x-2">
-                              <span className="whitespace-pre-wrap">{line}</span>
-                              {covered.has(`${order.orderNumber}|${i}`) && (
-                                <span className="text-lg font-black leading-none text-green-500" title="In stock for this order">
-                                  ✓
-                                </span>
-                              )}
-                            </li>
-                          ))}
+                          {(() => {
+                            const sent = sentPerLine(order.items, sentByOrder[order.orderNumber]);
+                            return order.items.split("\n").map((line, i) => {
+                              const qty = parseLine(line).qty;
+                              const allSent = qty > 0 && sent[i] >= qty;
+                              const someSent = !allSent && sent[i] > 0;
+                              return (
+                                <li
+                                  key={i}
+                                  className={`flex flex-wrap items-baseline gap-x-2 ${allSent ? "text-gray-600" : ""}`}
+                                >
+                                  <span className={`whitespace-pre-wrap ${allSent ? "line-through decoration-gray-600" : ""}`}>
+                                    {line}
+                                  </span>
+                                  {allSent && (
+                                    <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-black text-gray-400">
+                                      SENT
+                                    </span>
+                                  )}
+                                  {someSent && (
+                                    <span className="rounded bg-yellow-400/15 px-1.5 py-0.5 text-[10px] font-black text-yellow-400">
+                                      {sent[i]} OF {qty} SENT
+                                    </span>
+                                  )}
+                                  {!allSent && covered.has(`${order.orderNumber}|${i}`) && (
+                                    <span className="text-lg font-black leading-none text-green-500" title="In stock for this order">
+                                      ✓
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            });
+                          })()}
                         </ul>
                       )}
                     </div>
