@@ -42,7 +42,7 @@ export default function DealerOrderPage() {
   const [search, setSearch] = useState("");
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const [placed, setPlaced] = useState<{ orderNumber: string; packs: number; productTotal: number } | null>(null);
+  const [placed, setPlaced] = useState<{ orderNumber: string; packs: number; productTotal: number; invoiceNumber?: string } | null>(null);
 
   const draftKey = `gb-dealer-draft-${code}`;
 
@@ -129,7 +129,7 @@ export default function DealerOrderPage() {
         setError(d.error || "Couldn't send your order. Try again.");
         return;
       }
-      setPlaced({ orderNumber: d.orderNumber, packs: d.packs, productTotal: d.productTotal });
+      setPlaced({ orderNumber: d.orderNumber, packs: d.packs, productTotal: d.productTotal, invoiceNumber: d.invoiceNumber });
       setQty({});
       setNote("");
       try {
@@ -219,8 +219,10 @@ export default function DealerOrderPage() {
             <p className="text-xs font-black tracking-[0.25em] text-green-500">ORDER SENT ✓</p>
             <p className="mt-2 text-2xl font-black">{placed.orderNumber}</p>
             <p className="mt-1 text-gray-300">
-              {placed.packs} packets · {rand(placed.productTotal)} at dealer prices. Thank you! Your invoice will follow
-              shortly.
+              {placed.packs} packets · {rand(placed.productTotal)} at dealer prices. Thank you!{" "}
+              {placed.invoiceNumber
+                ? `Invoice ${placed.invoiceNumber} has been emailed to you.`
+                : "Your invoice will follow shortly."}
             </p>
           </div>
         )}

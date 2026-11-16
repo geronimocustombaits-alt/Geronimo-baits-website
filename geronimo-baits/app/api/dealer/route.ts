@@ -172,7 +172,7 @@ export async function POST(req: Request) {
 
   let saved;
   try {
-    saved = await callSheet({ action: "addDealerOrder", code, orderNumber, items, productTotal, note });
+    saved = await callSheet({ action: "addDealerOrder", code, orderNumber, items, productTotal, note, lines });
   } catch (error) {
     console.error("DEALER ORDER: could not save:", error);
     return fail("We couldn't save your order. Please try again or WhatsApp us.", 502);
@@ -197,12 +197,20 @@ export async function POST(req: Request) {
           <p>${rows}</p>
           <p><strong>${packs} packets · R${productTotal.toFixed(2)}</strong> at dealer prices</p>
           ${note ? `<p><strong>Note:</strong> ${escapeHtml(note)}</p>` : ""}
-          <p>Invoice it in Zoho and link the invoice number on the order in the back office, then make and pack it.</p>`,
+          ${
+            saved.invoice?.number
+              ? `<p>✅ Zoho invoice <strong>${escapeHtml(saved.invoice.number)}</strong> created${saved.invoice.mode === "send" ? " and emailed to the shop" : " as a draft: check it and send it"}.</p>`
+              : saved.invoice?.error
+                ? `<p>⚠️ The Zoho invoice couldn't be made: ${escapeHtml(saved.invoice.error)}. Invoice it by hand and link it on the order.</p>`
+                : `<p>Invoice it in Zoho and link the invoice number on the order in the back office, then make and pack it.</p>`
+          }`,
       });
     }
   } catch (error) {
     console.error("DEALER ORDER EMAIL ERROR:", error);
   }
 
-  return NextResponse.json({ success: true, orderNumber, packs, productTotal });
+  // Tell the shop its invoice number only once it's been emailed to them
+  const invoiceNumber = saved.invoice?.mode === "send" ? String(saved.invoice.number || "") : "";
+  return NextResponse.json({ success: true, orderNumber, packs, productTotal, invoiceNumber });
 }

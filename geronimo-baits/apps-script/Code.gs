@@ -1469,7 +1469,118 @@ function addDealerOrder(ss, sheet, data) {
     "",
     "",
   ]);
-  return { success: true, orderNumber, dealer: d.name, email: d.email };
+
+  // Zoho invoice straight away (if DEALER_AUTO_INVOICE is set). A failure here
+  // doesn't lose the order: it stays "Awaiting invoice" for you to do by hand.
+  let invoice = null;
+  try {
+    invoice = createDealerInvoice(d, orderNumber, data.lines, note);
+    if (invoice) {
+      const row = findRow(sheet, orderNumber);
+      if (String(sheet.getRange(1, COL.ZOHO_INVOICE).getValue()).trim() === "") {
+        sheet.getRange(1, COL.ZOHO_INVOICE).setValue("ZOHO INVOICE").setFontWeight("bold");
+      }
+      sheet.getRange(row, COL.ZOHO_INVOICE).setValue(invoice.number);
+      sheet.getRange(row, COL.PAYMENT_STATUS).setValue("Invoiced");
+    }
+  } catch (err) {
+    const row = findRow(sheet, orderNumber);
+    sheet.getRange(row, COL.PAYMENT_STATUS).setValue("Awaiting invoice - CHECK");
+    invoice = { error: String(err).slice(0, 300) };
+  }
+  return { success: true, orderNumber, dealer: d.name, email: d.email, invoice };
+}
+
+// ───────────── Dealer order → Zoho invoice ─────────────
+// Script property DEALER_AUTO_INVOICE:
+//   (not set) → off: invoice by hand and link it on the dashboard
+//   draft     → creates a draft invoice for you to check and send
+//   send      → creates the invoice and emails it to the shop
+// The Zoho refresh token needs these scopes (on top of the read ones):
+//   ZohoBooks.invoices.ALL, ZohoBooks.contacts.READ, ZohoBooks.settings.READ
+// Subject "Geronimo Baits"; reference number = the invoice number's digits
+// (INV-000052 → 52); the dealer order number goes in the notes.
+
+function zohoSend(auth, method, path, body) {
+  const res = UrlFetchApp.fetch(`${auth.api}/books/v3${path}`, {
+    method,
+    contentType: "application/json",
+    headers: { Authorization: `Zoho-oauthtoken ${auth.token}` },
+    payload: JSON.stringify(body),
+    muteHttpExceptions: true,
+  });
+  const out = JSON.parse(res.getContentText() || "{}");
+  if (out.code !== 0) throw new Error(`Zoho ${method} ${path.split("?")[0]}: ${out.message || res.getContentText()}`);
+  return out;
+}
+
+function zohoCustomerId(auth, orgId, name) {
+  const list = zohoGet(auth, `/contacts?organization_id=${orgId}&contact_type=customer&contact_name=${encodeURIComponent(name)}`);
+  const match = (list.contacts || []).find(c => String(c.contact_name).trim().toLowerCase() === name.trim().toLowerCase());
+  if (!match) throw new Error(`No Zoho customer called "${name}"`);
+  return match.contact_id;
+}
+
+// SKU → Zoho item id, all items in one go (kept for 6 hours)
+function zohoItemIds(auth, orgId) {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get("zoho_item_ids");
+  if (cached) return JSON.parse(cached);
+  const map = {};
+  for (let page = 1; page <= 10; page++) {
+    const list = zohoGet(auth, `/items?organization_id=${orgId}&per_page=200&page=${page}`);
+    (list.items || []).forEach(i => {
+      const sku = String(i.sku || "").trim().toUpperCase();
+      if (sku && i.status !== "inactive") map[sku] = i.item_id;
+    });
+    if (!list.page_context || !list.page_context.has_more_page) break;
+  }
+  try { cache.put("zoho_item_ids", JSON.stringify(map), 6 * 60 * 60); } catch (e) {}
+  return map;
+}
+
+function createDealerInvoice(dealer, orderNumber, lines, note) {
+  const props = PropertiesService.getScriptProperties();
+  const mode = String(props.getProperty("DEALER_AUTO_INVOICE") || "").trim().toLowerCase();
+  if (mode !== "draft" && mode !== "send") return null;
+  const orgId = props.getProperty("ZOHO_ORG_ID");
+  if (!orgId || !props.getProperty("ZOHO_REFRESH_TOKEN")) throw new Error("Zoho isn't set up");
+  if (!Array.isArray(lines) || !lines.length) throw new Error("No priced lines sent with the order");
+
+  const auth = zohoAuth();
+  const customerId = zohoCustomerId(auth, orgId, dealer.name);
+  const itemIds = zohoItemIds(auth, orgId);
+  const lineItems = lines.slice(0, 150).map(l => {
+    const sku = String(l.sku || "").trim().toUpperCase();
+    const itemId = itemIds[sku] || "";
+    const line = { quantity: Math.floor(num(l.qty)), rate: num(l.price) };
+    if (itemId) line.item_id = itemId;
+    else { line.name = String(l.label || sku).slice(0, 100); line.description = sku; }
+    return line;
+  });
+
+  const body = {
+    customer_id: customerId,
+    subject: "Geronimo Baits",
+    line_items: lineItems,
+    notes: `Dealer order ${orderNumber}${note ? `\nNote: ${note}` : ""}`,
+  };
+  const created = zohoSend(auth, "post", `/invoices?organization_id=${orgId}`, body).invoice;
+
+  // Reference number = invoice number's digits (INV-000052 → 52)
+  const ref = String(Number(String(created.invoice_number).replace(/\D/g, "")) || "");
+  if (ref) {
+    zohoSend(auth, "put", `/invoices/${created.invoice_id}?organization_id=${orgId}`,
+      Object.assign({}, body, { reference_number: ref }));
+  }
+  if (mode === "send" && dealer.email) {
+    zohoSend(auth, "post", `/invoices/${created.invoice_id}/email?organization_id=${orgId}`, {
+      to_mail_ids: dealer.email ? [dealer.email] : [],
+      subject: `Geronimo Baits invoice ${created.invoice_number} for order ${orderNumber}`,
+      body: `Hi ${dealer.contactName || "there"},<br><br>Thank you for your order ${orderNumber}. Your invoice ${created.invoice_number} is attached. Your baits are handmade and usually ready in 2 to 3 weeks.<br><br>Geronimo Baits · Built to Hunt`,
+    });
+  }
+  return { number: created.invoice_number, total: num(created.total), mode };
 }
 
 function findLinkedRow(sheet, invoiceNumber) {
@@ -1520,4 +1631,30 @@ function linkInvoice(sheet, data) {
     sheet.getRange(target, COL.PAYMENT_STATUS).setValue("Invoiced");
   }
   return { success: true, invoice, mergedCopy: copy > 0 };
+}
+
+// Run once by hand after pasting a new Self Client code into the script
+// property ZOHO_GRANT_CODE: swaps it for a refresh token and saves it as
+// ZOHO_REFRESH_TOKEN (the code only works for a few minutes).
+function zohoExchangeCode() {
+  const props = PropertiesService.getScriptProperties();
+  const code = props.getProperty("ZOHO_GRANT_CODE");
+  if (!code) throw new Error("Add ZOHO_GRANT_CODE first");
+  const accounts = props.getProperty("ZOHO_ACCOUNTS_URL") || "https://accounts.zoho.com";
+  const res = UrlFetchApp.fetch(`${accounts}/oauth/v2/token`, {
+    method: "post",
+    payload: {
+      code,
+      client_id: props.getProperty("ZOHO_CLIENT_ID"),
+      client_secret: props.getProperty("ZOHO_CLIENT_SECRET"),
+      grant_type: "authorization_code",
+    },
+    muteHttpExceptions: true,
+  });
+  const body = JSON.parse(res.getContentText());
+  if (!body.refresh_token) throw new Error("Zoho said: " + res.getContentText());
+  props.setProperty("ZOHO_REFRESH_TOKEN", body.refresh_token);
+  props.deleteProperty("ZOHO_GRANT_CODE");
+  CacheService.getScriptCache().remove("zoho_auth");
+  Logger.log("New Zoho refresh token saved. Scopes: " + (body.scope || "see Zoho"));
 }
