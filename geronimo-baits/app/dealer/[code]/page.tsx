@@ -176,10 +176,42 @@ export default function DealerOrderPage() {
         <p className="mt-3 text-sm font-black tracking-[0.4em] text-green-500">DEALER ORDERS</p>
         <h1 className="mt-3 text-3xl font-black md:text-5xl">{data.dealer.name.toUpperCase()}</h1>
         <p className="mt-3 text-gray-300">
-          Type how many packets you want of each colour and send. Prices are dealer prices per packet. Orders take{" "}
-          {DEALER_LEAD_TIME} to make and send; you&apos;ll get the invoice once it&apos;s packed.
+          Your private order form for Geronimo Baits.
         </p>
         <p className="mt-4 text-xs font-black tracking-[0.3em] text-green-500">BUILT TO HUNT · HANDMADE IN SA</p>
+        </div>
+
+        {/* How ordering works */}
+        <div className="mt-6 rounded-3xl border border-green-500/30 bg-black/85 p-6 backdrop-blur-md md:p-8">
+          <p className="text-sm font-black tracking-[0.3em] text-green-500">HOW IT WORKS</p>
+          <ol className="mt-4 grid gap-4 md:grid-cols-4">
+            {[
+              ["1", "Pick your packets", "Your usual colours are at the top. Tap + or type a number, or fill in your usual quantities in one go."],
+              ["2", "Send your order", "Press Send order at the bottom. You'll get an order number straight away."],
+              ["3", "We make & pack it", `Every bait is handmade, so allow ${DEALER_LEAD_TIME}. In-stock colours can go sooner.`],
+              ["4", "Invoice & delivery", "Once it's packed we send your invoice and arrange delivery with you."],
+            ].map(([n, title, text]) => (
+              <li key={n} className="rounded-2xl border border-green-500/15 bg-black/60 p-4">
+                <p className="text-2xl font-black text-green-500">{n}</p>
+                <p className="mt-1 font-black">{title}</p>
+                <p className="mt-1 text-sm text-gray-400">{text}</p>
+              </li>
+            ))}
+          </ol>
+          <ul className="mt-5 grid gap-2 text-sm text-gray-300 md:grid-cols-2">
+            <li>✓ All prices are <b className="text-white">dealer prices per packet</b>.</li>
+            <li>✓ <b className="text-white">&quot;Made to order&quot;</b> colours are poured for your order.</li>
+            <li>✓ Bookmark this page and use the same link for every order.</li>
+            <li>✓ Questions or custom colours? Add a note, or WhatsApp us.</li>
+          </ul>
+          <a
+            href={whatsappLink}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-5 inline-block rounded-xl border border-green-500 px-5 py-3 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black"
+          >
+            WHATSAPP {BUSINESS.phoneDisplay}
+          </a>
         </div>
 
         {placed && (
