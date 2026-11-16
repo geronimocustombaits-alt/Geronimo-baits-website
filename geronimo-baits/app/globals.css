@@ -54,3 +54,10 @@ body {
 .animate-gallery {
   animation: gallery 60s linear infinite;
 }
+/* Back office: same background as the shop */
+.admin-bg {
+  background: #000 url("/bg-main.webp") center / cover fixed;
+}
+@media print {
+  .admin-bg { background: none; }
+}

@@ -70,7 +70,7 @@ export default function RecapPage() {
   const bestRevenue = Math.max(0, ...months.map((m) => m.revenue));
 
   return (
-    <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
+    <main className="admin-bg min-h-screen px-4 py-10 text-white md:px-6">
       <section className="mx-auto max-w-7xl">
         <AdminNav
           current="/admin/recap"

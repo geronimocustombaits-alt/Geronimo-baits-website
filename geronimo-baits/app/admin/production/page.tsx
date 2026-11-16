@@ -219,7 +219,7 @@ export default function ProductionPage() {
   );
 
   return (
-    <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
+    <main className="admin-bg min-h-screen px-4 py-10 text-white md:px-6">
       <section className="mx-auto max-w-7xl">
         <AdminNav current="/admin/production" title="PRODUCTION" subtitle="Pour → cure → pack. Packing a batch adds it to stock." />
 

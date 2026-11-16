@@ -118,7 +118,7 @@ export default function LabelListPage() {
   }, [inventory, search]);
 
   return (
-    <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
+    <main className="admin-bg min-h-screen px-4 py-10 text-white md:px-6">
       <section className="mx-auto max-w-3xl">
         <AdminNav current="/admin/labels" title="LABEL LIST" subtitle="Work through this while you print labels in the NIIMBOT app." />
 

@@ -1,15 +1,18 @@
 "use client";
 
-// Shared header + menu for every back office screen.
+import { useEffect, useState } from "react";
 
-const LINKS = [
+// Shared header + menu for every back office screen.
+// ORDERS and DEALERS show a count of orders still waiting to be packed.
+
+const LINKS: { href: string; label: string; red?: boolean }[] = [
   { href: "/admin", label: "ORDERS" },
   { href: "/admin/make", label: "MAKE" },
   { href: "/admin/production", label: "PRODUCTION" },
   { href: "/admin/stock", label: "STOCK" },
   { href: "/admin/sales", label: "SALES" },
   { href: "/admin/recap", label: "RECAP" },
-  { href: "/admin/dealers", label: "DEALERS" },
+  { href: "/admin/dealers", label: "DEALERS", red: true },
   { href: "/admin/ambassadors", label: "AMBASSADORS" },
   { href: "/admin/labels", label: "🏷 LABELS" },
   { href: "/admin/scan", label: "📷 SCANNER" },
@@ -24,6 +27,30 @@ export default function AdminNav({
   title: string;
   subtitle?: string;
 }) {
+  const [counts, setCounts] = useState<Record<string, number>>({});
+
+  // Open orders (not packed / shipped / completed / cancelled / void)
+  useEffect(() => {
+    fetch("/api/admin/orders", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((orders) => {
+        if (!Array.isArray(orders)) return;
+        const done = ["packed", "shipped", "completed", "cancelled"];
+        const open = orders.filter(
+          (o: { orderStatus?: string; paymentStatus?: string }) =>
+            !done.includes(String(o.orderStatus || "").toLowerCase()) &&
+            !String(o.paymentStatus || "").toLowerCase().includes("void")
+        );
+        setCounts({
+          "/admin": open.length,
+          "/admin/dealers": open.filter(
+            (o: { paymentMethod?: string }) => String(o.paymentMethod || "").toLowerCase() === "dealer"
+          ).length,
+        });
+      })
+      .catch(() => {});
+  }, []);
+
   async function logout() {
     await fetch("/api/admin/login", { method: "DELETE" });
     window.location.href = "/admin/login";
@@ -45,19 +72,36 @@ export default function AdminNav({
         </button>
       </div>
       <nav className="mt-6 flex gap-2 overflow-x-auto pb-1">
-        {LINKS.map((link) => (
-          <a
-            key={link.href}
-            href={link.href}
-            className={`shrink-0 rounded-xl px-4 py-2 text-xs font-black tracking-wider transition ${
-              current === link.href
-                ? "bg-green-500 text-black"
-                : "border border-green-500/30 text-green-500 hover:border-green-500"
-            }`}
-          >
-            {link.label}
-          </a>
-        ))}
+        {LINKS.map((link) => {
+          const active = current === link.href;
+          const count = counts[link.href] || 0;
+          const colours = link.red
+            ? active
+              ? "bg-red-500 text-black"
+              : "border border-red-500/60 bg-black/70 text-red-400 hover:border-red-500"
+            : active
+              ? "bg-green-500 text-black"
+              : "border border-green-500/30 bg-black/70 text-green-500 hover:border-green-500";
+          return (
+            <a
+              key={link.href}
+              href={link.href}
+              className={`flex shrink-0 items-center gap-2 rounded-xl px-4 py-2 text-xs font-black tracking-wider transition ${colours}`}
+            >
+              {link.label}
+              {count > 0 && (
+                <span
+                  className={`min-w-5 rounded-full px-1.5 py-0.5 text-center text-[10px] leading-none ${
+                    active ? "bg-black text-white" : "bg-red-500 text-white"
+                  }`}
+                  title="Orders waiting to be packed"
+                >
+                  {count}
+                </span>
+              )}
+            </a>
+          );
+        })}
       </nav>
     </div>
   );

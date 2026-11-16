@@ -370,7 +370,7 @@ export default function AdminPage() {
   }, [orders, filter, search]);
 
   return (
-    <main className="min-h-screen bg-black px-4 py-10 text-white md:px-6">
+    <main className="admin-bg min-h-screen px-4 py-10 text-white md:px-6">
       {packing && (
         <PackPanel
           order={packing}

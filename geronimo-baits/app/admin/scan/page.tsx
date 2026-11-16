@@ -196,7 +196,7 @@ export default function ScanPage() {
   const totalPacks = lines.reduce((sum, l) => sum + l.qty, 0);
 
   return (
-    <main className="min-h-screen bg-black px-4 py-6 text-white">
+    <main className="admin-bg min-h-screen px-4 py-6 text-white">
       <div className="mx-auto max-w-xl">
         <div className="mb-5 flex items-center justify-between">
           <div>
