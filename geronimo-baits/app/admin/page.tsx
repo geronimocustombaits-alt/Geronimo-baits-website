@@ -649,9 +649,11 @@ export default function AdminPage() {
                         <ul className="mt-2 space-y-0.5 text-sm text-gray-300">
                           {(() => {
                             const sent = sentPerLine(order.items, sentByOrder[order.orderNumber]);
+                            // Packed / shipped / completed: everything on the order has gone out
+                            const orderSent = ["packed", "shipped", "completed"].includes(lower(order.orderStatus));
                             return order.items.split("\n").map((line, i) => {
                               const qty = parseLine(line).qty;
-                              const allSent = qty > 0 && sent[i] >= qty;
+                              const allSent = orderSent || (qty > 0 && sent[i] >= qty);
                               const someSent = !allSent && sent[i] > 0;
                               return (
                                 <li
