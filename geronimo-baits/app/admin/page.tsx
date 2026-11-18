@@ -126,7 +126,7 @@ function fifoCovered(
 }
 
 const FILTERS: { id: Filter; label: string }[] = [
-  { id: "all", label: "ALL" },
+  { id: "all", label: "ORDERS" }, // open orders only; finished ones live under COMPLETED
   { id: "awaiting", label: "AWAITING PAYMENT" },
   { id: "topack", label: "TO PACK" },
   { id: "shipped", label: "SHIPPED" },
@@ -163,7 +163,8 @@ function matchesFilter(order: Order, filter: Filter) {
     case "problems":
       return isProblem(order);
     default:
-      return true;
+      // Main list: hide finished orders (completed, cancelled, void)
+      return !["completed", "cancelled"].includes(status) && !lower(order.paymentStatus).includes("void");
   }
 }
 
