@@ -127,19 +127,22 @@ function fifoCovered(
 
 // READY: every line still to send has a ✓ (the shelf covers the whole order,
 // after older orders have taken theirs). Lines already sent don't count.
-function orderReady(order: Order, covered: Set<string>, sentBySku: Record<string, number> | undefined) {
+// Returns null for orders that aren't waiting to be packed.
+function orderReadiness(order: Order, covered: Set<string>, sentBySku: Record<string, number> | undefined) {
   if (!order.items || STOCK_ALREADY_OFF.includes(lower(order.orderStatus)) || lower(order.paymentStatus).includes("void")) {
-    return false;
+    return null;
   }
   const sent = sentPerLine(order.items, sentBySku);
   let toSend = 0;
-  const allCovered = order.items.split("\n").every((line, i) => {
+  let onShelf = 0;
+  order.items.split("\n").forEach((line, i) => {
     const qty = parseLine(line).qty;
-    if (!qty || (sent[i] || 0) >= qty) return true; // not an item line, or already sent
+    if (!qty || (sent[i] || 0) >= qty) return; // not an item line, or already sent
     toSend++;
-    return covered.has(`${order.orderNumber}|${i}`);
+    if (covered.has(`${order.orderNumber}|${i}`)) onShelf++;
   });
-  return allCovered && toSend > 0;
+  if (toSend === 0) return null;
+  return { ready: onShelf === toSend, toSend, onShelf };
 }
 
 const FILTERS: { id: Filter; label: string }[] = [
@@ -530,12 +533,19 @@ export default function AdminPage() {
                 const currentStatus = order.orderStatus || "Processing";
                 const isUpdating = updatingOrder === order.orderNumber;
                 const age = isOpen(order) ? daysSince(order.date) : null;
-                const ready = orderReady(order, covered, sentByOrder[order.orderNumber]);
+                const readiness = orderReadiness(order, covered, sentByOrder[order.orderNumber]);
+                const ready = Boolean(readiness?.ready);
 
                 return (
                   <div
                     key={order.orderNumber}
-                    className={`rounded-2xl border bg-black p-5 ${ready ? "border-green-500 shadow-lg shadow-green-500/20" : "border-green-500/20"}`}
+                    className={`rounded-2xl border bg-black p-5 ${
+                      !readiness
+                        ? "border-green-500/20"
+                        : ready
+                          ? "border-green-500 shadow-lg shadow-green-500/20"
+                          : "border-red-500/60"
+                    }`}
                   >
                     <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
                       <div>
@@ -557,14 +567,7 @@ export default function AdminPage() {
                               ⏱ {age === 0 ? "CAME IN TODAY" : `${ageText(age)} WITH YOU`}
                             </span>
                           )}
-                          {ready && (
-                            <span
-                              className="rounded-full bg-green-500 px-3 py-1 text-xs font-black tracking-wider text-black"
-                              title="Every bait on this order is on the shelf"
-                            >
-                              ✅ READY TO PACK
-                            </span>
-                          )}
+
                         </div>
                         <p className="mt-2 text-gray-300">{order.customerName || "No customer"}</p>
                         <p className="text-sm text-gray-500">
@@ -574,12 +577,27 @@ export default function AdminPage() {
                         </p>
                       </div>
 
+                      <div className="flex flex-wrap items-start gap-4 md:flex-nowrap">
+                      {readiness && (
+                        <div
+                          className={`rounded-xl px-5 py-3 text-center ${
+                            ready ? "bg-green-500 text-black" : "bg-red-600 text-white"
+                          }`}
+                          title={ready ? "Every bait still to send is on the shelf" : "Some baits on this order aren't on the shelf yet"}
+                        >
+                          <p className="text-lg font-black leading-tight tracking-wider">{ready ? "✅ READY" : "❌ NOT READY"}</p>
+                          <p className="text-xs font-bold opacity-80">
+                            {readiness.onShelf} of {readiness.toSend} lines on the shelf
+                          </p>
+                        </div>
+                      )}
                       <div className="text-left md:text-right">
                         <p className="text-sm text-gray-400">Total</p>
                         <p className="text-2xl font-black text-green-500">R{amount(order.grandTotal).toFixed(2)}</p>
                         {order.amountPaid && (
                           <p className="text-xs text-gray-500">Paid R{amount(order.amountPaid).toFixed(2)}</p>
                         )}
+                      </div>
                       </div>
                     </div>
 
