@@ -8,10 +8,22 @@ import { hasCamera } from "../camera";
 // PRODUCTION: scan each new pack → added to In Stock.
 // STOCKTAKE:  scan every pack on the shelf → Left is set to what you counted
 //             (only for the SKUs you scanned; others are left alone).
+// FULL:       weekly full stocktake → scanned products are set to the count,
+//             EVERY product not scanned is set to 0, Sold is moved to Total
+//             sold and reset. You see the list of products going to 0 first,
+//             and a report of what changed afterwards.
 
-type Mode = "production" | "stocktake";
+type Mode = "production" | "stocktake" | "full";
 type Line = { sku: string; qty: number };
-type Product = { sku: string; bait: string; colour: string };
+type Product = { sku: string; bait: string; colour: string; left?: number };
+type Diff = { sku: string; product: string; colour: string; expected: number; counted: number; scanned: boolean };
+type Report = { counted: number; zeroed: number; packs: number; diffs: Diff[] };
+
+const MODES: { id: Mode; label: string }[] = [
+  { id: "production", label: "➕ PRODUCTION" },
+  { id: "stocktake", label: "📋 STOCKTAKE" },
+  { id: "full", label: "🧾 FULL COUNT" },
+];
 
 const DRAFT_KEY = "gb-scan-draft";
 const SAME_CODE_PAUSE_MS = 1500; // one pack held in view only counts once
@@ -20,6 +32,9 @@ export default function ScanPage() {
   const [mode, setMode] = useState<Mode>("production");
   const [lines, setLines] = useState<Line[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [review, setReview] = useState<Product[] | null>(null); // full count: products about to go to 0
+  const [report, setReport] = useState<Report | null>(null);
   const [scanning, setScanning] = useState(false);
   const [cameraError, setCameraError] = useState("");
   const [handheldReady, setHandheldReady] = useState(false);
@@ -37,14 +52,18 @@ export default function ScanPage() {
 
   // Product names for the list: every SKU on the Inventory tab (live, hidden
   // shop products included). Falls back to the website's product list.
-  useEffect(() => {
-    fetch("/api/admin/inventory", { cache: "no-store" })
+  function loadProducts() {
+    return fetch("/api/admin/inventory", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (!data.success || !Array.isArray(data.items)) throw new Error("no inventory");
         setProducts(
-          data.items.map((i: { sku: string; product: string; colour: string }) => ({ sku: i.sku, bait: i.product, colour: i.colour }) as Product)
+          data.items.map(
+            (i: { sku: string; product: string; colour: string; left: number }) =>
+              ({ sku: i.sku, bait: i.product, colour: i.colour, left: Number(i.left) || 0 }) as Product
+          )
         );
+        setInventoryLoaded(true);
       })
       .catch(() =>
         fetch("/api/products")
@@ -52,7 +71,15 @@ export default function ScanPage() {
           .then((data) => Array.isArray(data) && setProducts(data))
           .catch(() => {})
       );
+  }
+  useEffect(() => {
+    loadProducts();
   }, []);
+
+  // Scanning more (or changing a count) after CHECK means the "going to 0" list is out of date
+  useEffect(() => {
+    setReview(null);
+  }, [lines]);
 
   // Keep an unsaved count if the phone locks or the page reloads
   useEffect(() => {
@@ -149,8 +176,40 @@ export default function ScanPage() {
     setScanning(false);
   }
 
+  // Full count: check everything first, then show the products going to 0
+  function startFullSave() {
+    setMessage(null);
+    setReport(null);
+    if (!inventoryLoaded) {
+      setMessage({ type: "error", text: "Couldn't load the Inventory list, so a full count can't be checked. Refresh and try again." });
+      return;
+    }
+    const unknown = lines.filter((l) => l.qty > 0 && !nameFor(l.sku)).map((l) => l.sku);
+    if (unknown.length) {
+      setMessage({
+        type: "error",
+        text: `Not on the Inventory tab: ${unknown.join(", ")}. Those packs would not be counted and their real product would go to 0. Fix the SKU (type the right one with ×) or set them to 0, then save again.`,
+      });
+      return;
+    }
+    const scanned = new Set(lines.filter((l) => l.qty > 0).map((l) => l.sku));
+    const seen = new Set<string>();
+    setReview(
+      products.filter((p) => {
+        const sku = p.sku.toUpperCase();
+        if (seen.has(sku) || scanned.has(sku)) return false;
+        seen.add(sku);
+        return true;
+      })
+    );
+  }
+
   async function save() {
     if (lines.length === 0) return;
+    if (mode === "full" && review === null) {
+      startFullSave();
+      return;
+    }
     if (
       mode === "stocktake" &&
       !window.confirm(`Set stock to your counted amounts for ${lines.length} product(s)? Products you didn't scan stay as they are.`)
@@ -166,7 +225,7 @@ export default function ScanPage() {
         body: JSON.stringify({
           mode,
           reference: `SCAN ${new Date().toISOString().slice(0, 16).replace("T", " ")} ${Math.random().toString(36).slice(2, 6)}`,
-          items: lines,
+          items: mode === "full" ? lines.filter((l) => l.qty > 0) : lines,
         }),
       });
       if (response.status === 401) {
@@ -179,6 +238,20 @@ export default function ScanPage() {
         return;
       }
       const unknown: string[] = data.unknown || [];
+      if (mode === "full") {
+        setReview(null);
+        setReport({ counted: data.counted, zeroed: data.zeroed, packs: data.packs, diffs: data.diffs || [] });
+        setMessage({
+          type: unknown.length ? "error" : "ok",
+          text: data.skipped
+            ? "This count was already saved."
+            : `Full count saved: ${data.counted} product(s) counted (${data.packs} packs), ${data.zeroed} not scanned set to 0.` +
+              (unknown.length ? ` Not found in Inventory (not saved): ${unknown.join(", ")}` : ""),
+        });
+        setLines([]);
+        loadProducts();
+        return;
+      }
       setMessage({
         type: unknown.length ? "error" : "ok",
         text:
@@ -213,21 +286,26 @@ export default function ScanPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-2 rounded-2xl border border-green-500/20 p-1">
-          {(["production", "stocktake"] as Mode[]).map((m) => (
+        <div className="grid grid-cols-3 gap-2 rounded-2xl border border-green-500/20 p-1">
+          {MODES.map((m) => (
             <button
-              key={m}
-              onClick={() => setMode(m)}
-              className={`rounded-xl py-3 text-sm font-black ${mode === m ? "bg-green-500 text-black" : "text-green-500"}`}
+              key={m.id}
+              onClick={() => {
+                setMode(m.id);
+                setReview(null);
+              }}
+              className={`rounded-xl py-3 text-xs font-black sm:text-sm ${mode === m.id ? "bg-green-500 text-black" : "text-green-500"}`}
             >
-              {m === "production" ? "➕ PRODUCTION" : "📋 STOCKTAKE"}
+              {m.label}
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-gray-400">
+        <p className={`mt-2 text-xs ${mode === "full" ? "font-bold text-yellow-400" : "text-gray-400"}`}>
           {mode === "production"
             ? "Scan each new pack once. Saving adds them to In Stock."
-            : "Scan every pack on the shelf. Saving sets stock (Left) to what you counted, for the products you scanned."}
+            : mode === "stocktake"
+              ? "Scan every pack on the shelf. Saving sets stock (Left) to what you counted, for the products you scanned."
+              : "Weekly full count. Scan EVERY pack you have. Saving sets each scanned product to its count and every product you didn't scan to 0. Sold moves to Total sold and starts again at 0. Curing batches aren't touched."}
         </p>
 
         <div className="relative mt-4 overflow-hidden rounded-2xl border border-green-500/30 bg-zinc-900">
@@ -363,12 +441,86 @@ export default function ScanPage() {
           </p>
         )}
 
+        {review !== null && mode === "full" && (
+          <div className="mt-4 rounded-2xl border border-yellow-500/50 bg-yellow-500/5 p-4">
+            {(() => {
+              const withStock = review.filter((p) => (p.left ?? 0) !== 0);
+              const alreadyZero = review.length - withStock.length;
+              return (
+                <>
+                  <p className="font-black text-yellow-400">
+                    {withStock.length === 0
+                      ? "Every product with stock was scanned."
+                      : `${withStock.length} product(s) with stock weren't scanned and will go to 0:`}
+                  </p>
+                  {withStock.length > 0 && (
+                    <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto text-sm">
+                      {withStock.map((p) => (
+                        <li key={p.sku} className="flex justify-between gap-2">
+                          <span className="truncate">
+                            {p.bait} – {p.colour} <span className="text-xs text-gray-500">{p.sku}</span>
+                          </span>
+                          <span className="font-bold text-red-400">
+                            {p.left} → 0
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {alreadyZero > 0 && <p className="mt-2 text-xs text-gray-400">+ {alreadyZero} other product(s) already on 0.</p>}
+                  <p className="mt-3 text-xs text-gray-400">If any of these are on the shelf, go back and scan them first.</p>
+                  <button
+                    onClick={() => setReview(null)}
+                    className="mt-3 w-full rounded-xl border border-green-500/40 py-3 text-sm font-black text-green-500"
+                  >
+                    ← BACK TO SCANNING
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        )}
+
+        {report && (
+          <div className="mt-4 rounded-2xl border border-green-500/30 p-4">
+            <p className="font-black">
+              WHAT CHANGED · {report.diffs.length} product(s) differed from the sheet
+            </p>
+            {report.diffs.length === 0 ? (
+              <p className="mt-2 text-sm text-green-400">Everything matched. 👌</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-sm">
+                {report.diffs.map((d) => (
+                  <li key={d.sku} className="flex justify-between gap-2">
+                    <span className="truncate">
+                      {d.product} – {d.colour} <span className="text-xs text-gray-500">{d.sku}</span>
+                    </span>
+                    <span className={`whitespace-nowrap font-bold ${d.counted < d.expected ? "text-red-400" : "text-green-400"}`}>
+                      {d.expected} → {d.counted} ({d.counted - d.expected > 0 ? "+" : ""}
+                      {d.counted - d.expected})
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-2 text-xs text-gray-500">Also saved in the Stock Log as FULL STOCKTAKE lines.</p>
+          </div>
+        )}
+
         <button
           onClick={save}
           disabled={saving || lines.length === 0}
           className="sticky bottom-4 mt-5 w-full rounded-2xl bg-green-500 py-5 text-lg font-black text-black shadow-lg shadow-green-500/30 disabled:opacity-50"
         >
-          {saving ? "SAVING..." : mode === "production" ? `ADD ${totalPacks} PACKS TO STOCK` : "SAVE STOCKTAKE"}
+          {saving
+            ? "SAVING..."
+            : mode === "production"
+              ? `ADD ${totalPacks} PACKS TO STOCK`
+              : mode === "stocktake"
+                ? "SAVE STOCKTAKE"
+                : review !== null
+                  ? "CONFIRM — SAVE FULL COUNT"
+                  : `CHECK FULL COUNT (${totalPacks} PACKS)`}
         </button>
       </div>
     </main>
