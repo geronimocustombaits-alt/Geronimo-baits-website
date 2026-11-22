@@ -125,6 +125,23 @@ function fifoCovered(
   return covered;
 }
 
+// READY: every line still to send has a ✓ (the shelf covers the whole order,
+// after older orders have taken theirs). Lines already sent don't count.
+function orderReady(order: Order, covered: Set<string>, sentBySku: Record<string, number> | undefined) {
+  if (!order.items || STOCK_ALREADY_OFF.includes(lower(order.orderStatus)) || lower(order.paymentStatus).includes("void")) {
+    return false;
+  }
+  const sent = sentPerLine(order.items, sentBySku);
+  let toSend = 0;
+  const allCovered = order.items.split("\n").every((line, i) => {
+    const qty = parseLine(line).qty;
+    if (!qty || (sent[i] || 0) >= qty) return true; // not an item line, or already sent
+    toSend++;
+    return covered.has(`${order.orderNumber}|${i}`);
+  });
+  return allCovered && toSend > 0;
+}
+
 const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "ORDERS" }, // open orders only; finished ones live under COMPLETED
   { id: "awaiting", label: "AWAITING PAYMENT" },
@@ -513,9 +530,13 @@ export default function AdminPage() {
                 const currentStatus = order.orderStatus || "Processing";
                 const isUpdating = updatingOrder === order.orderNumber;
                 const age = isOpen(order) ? daysSince(order.date) : null;
+                const ready = orderReady(order, covered, sentByOrder[order.orderNumber]);
 
                 return (
-                  <div key={order.orderNumber} className="rounded-2xl border border-green-500/20 bg-black p-5">
+                  <div
+                    key={order.orderNumber}
+                    className={`rounded-2xl border bg-black p-5 ${ready ? "border-green-500 shadow-lg shadow-green-500/20" : "border-green-500/20"}`}
+                  >
                     <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
                       <div>
                         <p className="text-xs font-bold tracking-[0.25em] text-green-500">
@@ -534,6 +555,14 @@ export default function AdminPage() {
                               title="How long this order has been with you"
                             >
                               ⏱ {age === 0 ? "CAME IN TODAY" : `${ageText(age)} WITH YOU`}
+                            </span>
+                          )}
+                          {ready && (
+                            <span
+                              className="rounded-full bg-green-500 px-3 py-1 text-xs font-black tracking-wider text-black"
+                              title="Every bait on this order is on the shelf"
+                            >
+                              ✅ READY TO PACK
                             </span>
                           )}
                         </div>
