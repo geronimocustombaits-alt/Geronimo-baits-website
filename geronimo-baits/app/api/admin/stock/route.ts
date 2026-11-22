@@ -4,6 +4,9 @@ import { isAdminRequest } from "@/lib/adminAuth";
 // Phone scanner → Inventory tab (via the Orders Apps Script web app).
 // mode "production": scanned packs are added to In Stock.
 // mode "stocktake":  Left is set to the number of packs counted.
+// mode "full":       weekly full stocktake — counted products are set to the
+//                    count, every product NOT scanned is set to 0, Sold is moved
+//                    to Total sold and reset. Returns what differed.
 
 type ScanItem = { sku: string; qty: number };
 
@@ -28,7 +31,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: "Invalid request" }, { status: 400 });
   }
 
-  const mode = body.mode === "stocktake" ? "stocktake" : "production";
+  const mode = body.mode === "stocktake" || body.mode === "full" ? body.mode : "production";
   const items = (Array.isArray(body.items) ? body.items : [])
     .map((i) => ({ sku: String(i?.sku || "").trim().toUpperCase(), qty: Math.floor(Number(i?.qty)) }))
     .filter((i) => /^[A-Z0-9-]{3,40}$/.test(i.sku) && Number.isFinite(i.qty) && i.qty >= 0 && i.qty <= 10000);
@@ -50,7 +53,17 @@ export async function POST(req: Request) {
       }),
     });
     const text = await response.text();
-    let result: { success?: boolean; error?: string; updated?: number; unknown?: string[] } = {};
+    let result: {
+      success?: boolean;
+      error?: string;
+      skipped?: boolean;
+      updated?: number;
+      unknown?: string[];
+      counted?: number;
+      zeroed?: number;
+      packs?: number;
+      diffs?: unknown[];
+    } = {};
     try {
       result = JSON.parse(text);
     } catch {
@@ -64,7 +77,16 @@ export async function POST(req: Request) {
         { status: 502 }
       );
     }
-    return NextResponse.json({ success: true, updated: result.updated ?? 0, unknown: result.unknown ?? [] });
+    return NextResponse.json({
+      success: true,
+      skipped: Boolean(result.skipped),
+      updated: result.updated ?? 0,
+      unknown: result.unknown ?? [],
+      counted: result.counted ?? 0,
+      zeroed: result.zeroed ?? 0,
+      packs: result.packs ?? 0,
+      diffs: result.diffs ?? [],
+    });
   } catch (error) {
     console.error("STOCK ERROR:", error);
     return NextResponse.json({ success: false, error: "Couldn't reach the sheet" }, { status: 502 });

@@ -11,6 +11,9 @@
  *   • Zoho invoice voided                   → packed stock put back
  *   • Phone scanner: Production             → adds to In Stock
  *   • Phone scanner: Stocktake              → sets Left to the counted amount
+ *   • Phone scanner: Full stocktake         → counted products = count, every
+ *                                             other product = 0, Sold moved to
+ *                                             Total sold and reset to 0
  *
  * Zoho invoices (every 15 min) and website orders only create / update the
  * Orders row. Stock comes off when the order is scanned and packed, so it
@@ -43,8 +46,8 @@ const COL = {
 
 // Inventory blocks: most ranges sit in columns A–L, Wargrubs sit in O–T.
 const INVENTORY_BLOCKS = [
-  { skuCol: 1, inStockCol: 4, soldCol: 5 },     // A SKU, D In Stock, E Sold
-  { skuCol: 15, inStockCol: 18, soldCol: 19 },  // O SKU, R In Stock, S Sold
+  { skuCol: 1, inStockCol: 4, soldCol: 5, totalSoldCol: 8 }, // A SKU, D In Stock, E Sold, H Total sold
+  { skuCol: 15, inStockCol: 18, soldCol: 19 },               // O SKU, R In Stock, S Sold (no Total sold column)
 ];
 
 // ───────────────────────────── Web app entry ─────────────────────────────
@@ -190,16 +193,34 @@ function parseOrderItems(text) {
 
 // ───────────────────────────── Stock ─────────────────────────────
 
-function inventoryIndex(inv) {
-  const values = inv.getDataRange().getValues();
-  const index = {};
+// Every product row on the Inventory tab, with the product heading above it.
+// Skips the "SKU MEANING" key at the top, so a SKU listed there as an example
+// (WH-BM-35-12) is not mistaken for the real stock row further down.
+function inventoryRows(values) {
+  const rows = [];
   INVENTORY_BLOCKS.forEach(block => {
+    const c = block.skuCol - 1; // A or O
+    let product = "";
     for (let r = 0; r < values.length; r++) {
-      const sku = String(values[r][block.skuCol - 1] || "").trim();
-      if (sku && sku.includes("-") && sku !== "SKU" && !index[sku]) {
-        index[sku] = { row: r + 1, inStockCol: block.inStockCol, soldCol: block.soldCol };
+      const first = String(values[r][c] || "").trim();
+      if (!first || first === "SKU") continue;
+      if (!/^[A-Z]+-[A-Z0-9]+-\d+-\d+$/i.test(first)) {
+        product = first; // heading row, e.g. Warvipers 4.5"
+        continue;
       }
+      if (/meaning/i.test(product)) continue;
+      rows.push({ sku: first, colour: String(values[r][c + 1] || "").trim(), product, par: num(values[r][c + 2]), row: r + 1, block });
     }
+  });
+  return rows;
+}
+
+function inventoryIndex(inv) {
+  const index = {};
+  inventoryRows(inv.getDataRange().getValues()).forEach(item => {
+    if (index[item.sku]) return;
+    const b = item.block;
+    index[item.sku] = { row: item.row, inStockCol: b.inStockCol, soldCol: b.soldCol };
   });
   return index;
 }
@@ -274,6 +295,7 @@ function reverseSale(ss, reference, source) {
 //                                   oldest open Production batch of that SKU.
 //                mode "stocktake":  set Left (In Stock − Sold) to the count.
 function stockIn(ss, data) {
+  if (data.mode === "full") return fullStocktake(ss, data);
   const mode = data.mode === "stocktake" ? "stocktake" : "production";
   const reference = String(data.reference || "");
   const log = logSheet(ss);
@@ -317,6 +339,82 @@ function stockIn(ss, data) {
   });
 
   return { success: true, updated, unknown, fromBatches };
+}
+
+// Weekly full stocktake. Everything on the shelf is scanned in one go:
+//   • scanned products: In Stock = count, Sold = 0
+//   • products NOT scanned: In Stock = 0, Sold = 0 (they weren't on the shelf)
+//   • Sold is added to Total sold (column H) first, so sales history isn't lost
+// Every product whose count differs from what the sheet expected gets a
+// FULL STOCKTAKE line in the Stock Log, plus one summary line (SKU "ALL").
+// Production batches are not touched.
+function fullStocktake(ss, data) {
+  const reference = String(data.reference || "");
+  const log = logSheet(ss);
+  if (reference && alreadyLogged(log, reference, "FULL STOCKTAKE")) return { success: true, skipped: true };
+
+  const counts = {};
+  (data.items || []).forEach(item => {
+    const sku = String(item.sku || "").trim().toUpperCase();
+    const qty = Math.max(Math.floor(num(item.qty)), 0);
+    if (sku) counts[sku] = (counts[sku] || 0) + qty;
+  });
+
+  const inv = ss.getSheetByName(INVENTORY_SHEET);
+  const values = inv.getDataRange().getValues();
+  const seen = {};
+  const items = inventoryRows(values).filter(item => {
+    const key = item.sku.toUpperCase();
+    if (seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+
+  const now = new Date();
+  const unknown = Object.keys(counts).filter(sku => !seen[sku]);
+  const logRows = [];
+  const diffs = [];
+  let counted = 0;
+  let zeroed = 0;
+  let soldMoved = 0;
+
+  unknown.forEach(sku => {
+    logRows.push([now, "UNKNOWN SKU", sku, counts[sku], reference, "Scanner", "Not found in Inventory - stock not changed"]);
+  });
+
+  items.forEach(item => {
+    const b = item.block;
+    const r = item.row - 1;
+    const inStock = num(values[r][b.inStockCol - 1]);
+    const sold = num(values[r][b.soldCol - 1]);
+    const expected = inStock - sold;
+    const scanned = Object.prototype.hasOwnProperty.call(counts, item.sku.toUpperCase());
+    const qty = scanned ? counts[item.sku.toUpperCase()] : 0;
+    if (scanned) counted++;
+    else zeroed++;
+
+    if (b.totalSoldCol && sold) {
+      const totalRange = inv.getRange(item.row, b.totalSoldCol);
+      totalRange.setValue(num(totalRange.getValue()) + sold);
+      soldMoved += sold;
+    }
+    if (inStock !== qty) inv.getRange(item.row, b.inStockCol).setValue(qty);
+    if (sold !== 0) inv.getRange(item.row, b.soldCol).setValue(0);
+
+    if (qty !== expected) {
+      diffs.push({ sku: item.sku, product: item.product, colour: item.colour, expected, counted: qty, scanned });
+      logRows.push([now, "FULL STOCKTAKE", item.sku, qty - expected, reference, "Scanner",
+        `Counted ${qty} (expected ${expected})${scanned ? "" : " - not scanned, set to 0"}`]);
+    }
+  });
+
+  const packs = Object.keys(counts).filter(sku => seen[sku]).reduce((sum, sku) => sum + counts[sku], 0);
+  logRows.unshift([now, "FULL STOCKTAKE", "ALL", packs, reference, "Scanner",
+    `Full stocktake: ${counted} products counted (${packs} packs), ${zeroed} not scanned set to 0, ` +
+    `${diffs.length} different from expected. ${soldMoved} sold moved to Total sold, Sold reset to 0.`]);
+  log.getRange(log.getLastRow() + 1, 1, logRows.length, 7).setValues(logRows);
+
+  return { success: true, updated: counted, counted, zeroed, packs, unknown, diffs };
 }
 
 // Scanned production packs come out of the open batches for that SKU, oldest
@@ -685,34 +783,10 @@ function packOrder(ss, sheet, data) {
 function getInventory(ss) {
   const inv = ss.getSheetByName(INVENTORY_SHEET);
   const values = inv.getDataRange().getValues();
-  const items = [];
-
-  INVENTORY_BLOCKS.forEach(block => {
-    const c = block.skuCol - 1; // A or O
-    let product = "";
-    for (let r = 0; r < values.length; r++) {
-      const first = String(values[r][c] || "").trim();
-      const second = String(values[r][c + 1] || "").trim();
-      if (!first) continue;
-      if (first === "SKU") continue;
-      const looksLikeSku = /^[A-Z]+-[A-Z0-9]+-\d+-\d+$/i.test(first);
-      if (!looksLikeSku) {
-        product = first; // heading row, e.g. Warvipers 4.5"
-        continue;
-      }
-      if (/meaning/i.test(product)) continue; // the "SKU MEANING" key at the top
-      const inStock = num(values[r][block.inStockCol - 1]);
-      const sold = num(values[r][block.soldCol - 1]);
-      items.push({
-        sku: first,
-        colour: second,
-        product,
-        par: num(values[r][c + 2]),
-        inStock,
-        sold,
-        left: inStock - sold,
-      });
-    }
+  const items = inventoryRows(values).map(item => {
+    const inStock = num(values[item.row - 1][item.block.inStockCol - 1]);
+    const sold = num(values[item.row - 1][item.block.soldCol - 1]);
+    return { sku: item.sku, colour: item.colour, product: item.product, par: item.par, inStock, sold, left: inStock - sold };
   });
   return { success: true, items, at: new Date().toISOString() };
 }
