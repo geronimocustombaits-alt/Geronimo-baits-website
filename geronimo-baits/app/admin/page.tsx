@@ -27,7 +27,7 @@ type Order = {
   zohoInvoice: string;
 };
 
-type Filter = "all" | "awaiting" | "topack" | "shipped" | "completed" | "problems";
+type Filter = "all" | "awaiting" | "topack" | "onhold" | "shipped" | "completed" | "problems";
 
 const STATUS_BUTTONS = ["Processing", "Packed", "Shipped", "Completed"];
 // Once an order is packed its packs are already off the shelf, so no stock marks
@@ -53,9 +53,16 @@ function daysSince(value: string) {
   return days >= 0 ? days : 0;
 }
 
-// Orders still with me: not yet shipped, completed, cancelled or void
+// On hold: parked until later (e.g. customer pays after a date). ORDER STATUS is
+// "On hold" or "On hold – 15 Dec". Held orders leave the queue, don't claim
+// shelf stock and don't count towards the "days with you" age.
+const isOnHold = (o: Order) => lower(o.orderStatus).startsWith("on hold");
+
+// Orders still with me: not yet shipped, completed, cancelled, void or on hold
 const isOpen = (o: Order) =>
-  !["shipped", "completed", "cancelled"].includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void");
+  !["shipped", "completed", "cancelled"].includes(lower(o.orderStatus)) &&
+  !lower(o.paymentStatus).includes("void") &&
+  !isOnHold(o);
 
 // Lead time is 2-3 weeks: green under a week, yellow up to 3 weeks, red past it
 function ageTone(days: number) {
@@ -106,7 +113,7 @@ function fifoCovered(
   const left: Record<string, number> = {};
   Object.keys(leftBySku).forEach((k) => (left[k] = Math.max(leftBySku[k], 0)));
   const open = orders
-    .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void"))
+    .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void") && !isOnHold(o))
     .sort(oldestFirst);
   open.forEach((o) => {
     const sent = sentPerLine(o.items, sentByOrder[o.orderNumber]);
@@ -129,7 +136,7 @@ function fifoCovered(
 // after older orders have taken theirs). Lines already sent don't count.
 // Returns null for orders that aren't waiting to be packed.
 function orderReadiness(order: Order, covered: Set<string>, sentBySku: Record<string, number> | undefined) {
-  if (!order.items || STOCK_ALREADY_OFF.includes(lower(order.orderStatus)) || lower(order.paymentStatus).includes("void")) {
+  if (!order.items || STOCK_ALREADY_OFF.includes(lower(order.orderStatus)) || lower(order.paymentStatus).includes("void") || isOnHold(order)) {
     return null;
   }
   const sent = sentPerLine(order.items, sentBySku);
@@ -149,6 +156,7 @@ const FILTERS: { id: Filter; label: string }[] = [
   { id: "all", label: "ORDERS" }, // open orders only; finished ones live under COMPLETED
   { id: "awaiting", label: "AWAITING PAYMENT" },
   { id: "topack", label: "TO PACK" },
+  { id: "onhold", label: "ON HOLD" },
   { id: "shipped", label: "SHIPPED" },
   { id: "completed", label: "COMPLETED" },
   { id: "problems", label: "NEEDS ATTENTION" },
@@ -165,12 +173,12 @@ const isPaid = (o: Order) => lower(o.paymentStatus).startsWith("paid");
 // Shop orders from a dealer link: packed first, invoiced in Zoho afterwards
 const isDealer = (o: Order) => lower(o.paymentMethod) === "dealer";
 const isProblem = (o: Order) =>
-  lower(o.paymentStatus).includes("mismatch") ||
-  lower(o.paymentStatus).includes("check") ||
-  lower(o.orderStatus) === "on hold";
+  !isOnHold(o) && (lower(o.paymentStatus).includes("mismatch") || lower(o.paymentStatus).includes("check"));
 
 function matchesFilter(order: Order, filter: Filter) {
   const status = lower(order.orderStatus);
+  if (filter === "onhold") return isOnHold(order) && !lower(order.paymentStatus).includes("void");
+  if (isOnHold(order)) return false; // held orders only show under ON HOLD
   switch (filter) {
     case "awaiting":
       return lower(order.paymentStatus) === "pending";
@@ -406,6 +414,17 @@ export default function AdminPage() {
   }
 
 
+  // Park an order until later; the note (e.g. "15 Dec") shows on the card
+  function putOnHold(order: Order) {
+    const note = window.prompt(
+      `Put ${order.orderNumber} on hold?\nIt leaves the packing queue until you bring it back.\n\nUntil when / why? (optional, e.g. "pays 15 Dec")`,
+      ""
+    );
+    if (note === null) return; // cancelled
+    const clean = note.trim().replace(/\s+/g, " ").slice(0, 60);
+    updateOrderStatus(order.orderNumber, clean ? `On hold – ${clean}` : "On hold");
+  }
+
   const stats = useMemo(() => {
     const paid = orders.filter(isPaid);
     return {
@@ -559,6 +578,11 @@ export default function AdminPage() {
                               🏪 DEALER
                             </span>
                           )}
+                          {isOnHold(order) && (
+                            <span className="rounded-full border border-orange-400/50 bg-orange-400/10 px-3 py-1 text-xs font-black tracking-wider text-orange-400">
+                              ⏸ ON HOLD
+                            </span>
+                          )}
                           {age !== null && (
                             <span
                               className={`rounded-full border px-3 py-1 text-xs font-black tracking-wider ${ageTone(age)}`}
@@ -605,7 +629,7 @@ export default function AdminPage() {
                       <Info label="PAYMENT STATUS" className={paymentColour(order)}>
                         {order.paymentStatus || "Pending"}
                       </Info>
-                      <Info label="ORDER STATUS" className="text-green-500">
+                      <Info label="ORDER STATUS" className={isOnHold(order) ? "text-orange-400" : "text-green-500"}>
                         {currentStatus}
                       </Info>
                       <Info label="DELIVERY">
@@ -751,7 +775,26 @@ export default function AdminPage() {
                       ))}
 
                       <div className="flex flex-wrap gap-3 md:ml-auto">
-                      {!["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
+                      {isOnHold(order) ? (
+                        <button
+                          disabled={isUpdating}
+                          onClick={() => updateOrderStatus(order.orderNumber, "Processing")}
+                          className="rounded-xl bg-orange-400 px-4 py-3 text-sm font-black text-black transition hover:bg-orange-300 disabled:opacity-60"
+                        >
+                          ▶ BACK TO QUEUE
+                        </button>
+                      ) : (
+                        !["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
+                          <button
+                            disabled={isUpdating}
+                            onClick={() => putOnHold(order)}
+                            className="rounded-xl border border-orange-400/50 px-4 py-3 text-sm font-black text-orange-400 transition hover:bg-orange-400 hover:text-black disabled:opacity-60"
+                          >
+                            ⏸ ON HOLD
+                          </button>
+                        )
+                      )}
+                      {!isOnHold(order) && !["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
                         <button
                           onClick={() => setPacking(order)}
                           className="rounded-xl bg-green-500 px-4 py-3 text-sm font-black text-black transition hover:bg-green-400"
