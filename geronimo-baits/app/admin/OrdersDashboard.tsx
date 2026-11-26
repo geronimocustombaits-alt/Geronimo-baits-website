@@ -1,0 +1,876 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import PackPanel from "./PackPanel";
+import AdminNav from "./AdminNav";
+import { sheetAction } from "@/lib/sheetAction";
+
+type Order = {
+  orderNumber: string;
+  date: string;
+  customerName: string;
+  customerPhone: string;
+  customerEmail: string;
+  deliveryMethod: string;
+  items: string;
+  productTotal: string;
+  shipping: string;
+  grandTotal: string;
+  paymentMethod: string;
+  paymentStatus: string;
+  orderStatus: string;
+  lockerCode: string;
+  deliveryAddress: string;
+  amountPaid: string;
+  huntBox: string;
+  referral: string;
+  zohoInvoice: string;
+};
+
+type Filter = "all" | "awaiting" | "topack" | "onhold" | "shipped" | "completed" | "problems";
+
+const STATUS_BUTTONS = ["Processing", "Packed", "Shipped", "Completed"];
+// Once an order is packed its packs are already off the shelf, so no stock marks
+const STOCK_ALREADY_OFF = ["packed", "shipped", "completed", "cancelled"];
+
+// Order dates come as "2026-10-29" (Zoho) or "11/11/2026 13:15:55" (the sheet,
+// UK day/month/year). Turn both into "2026-11-11 13:15:55" so they sort right.
+function dateKey(value: string) {
+  const v = String(value || "").trim();
+  const uk = v.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(.*)$/);
+  if (uk) return `${uk[3]}-${uk[2].padStart(2, "0")}-${uk[1].padStart(2, "0")}${uk[4]}`.replace("T", " ");
+  return v.replace("T", " ").replace(/\//g, "-");
+}
+// How many whole days since the order came in (null if the date can't be read)
+function daysSince(value: string) {
+  const key = dateKey(value);
+  const m = key.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return null;
+  const placed = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const days = Math.round((today.getTime() - placed.getTime()) / 86400000);
+  return days >= 0 ? days : 0;
+}
+
+// On hold: parked until later (e.g. customer pays after a date). ORDER STATUS is
+// "On hold" or "On hold – 15 Dec". Held orders leave the queue, don't claim
+// shelf stock and don't count towards the "days with you" age.
+const isOnHold = (o: Order) => lower(o.orderStatus).startsWith("on hold");
+
+// Orders still with me: not yet shipped, completed, cancelled, void or on hold
+const isOpen = (o: Order) =>
+  !["shipped", "completed", "cancelled"].includes(lower(o.orderStatus)) &&
+  !lower(o.paymentStatus).includes("void") &&
+  !isOnHold(o);
+
+// Lead time is 2-3 weeks: green under a week, yellow up to 3 weeks, red past it
+function ageTone(days: number) {
+  if (days >= 21) return "border-red-500/50 bg-red-500/10 text-red-400";
+  if (days >= 7) return "border-yellow-500/40 bg-yellow-500/10 text-yellow-400";
+  return "border-green-500/40 bg-green-500/10 text-green-500";
+}
+const ageText = (days: number) => (days === 0 ? "TODAY" : days === 1 ? "1 DAY" : `${days} DAYS`);
+
+// Oldest order first (then by order number)
+const oldestFirst = (a: Order, b: Order) =>
+  dateKey(a.date).localeCompare(dateKey(b.date)) || String(a.orderNumber).localeCompare(String(b.orderNumber));
+
+// "6x Warviper 4.5" Junebug | WV-BM-45-12" → quantity + SKU
+function parseLine(line: string) {
+  const qty = parseInt(line, 10);
+  const sku = line.includes("|") ? line.split("|").pop()!.trim().toUpperCase() : "";
+  return { qty: qty > 0 ? qty : 0, sku };
+}
+
+// First in, first out: shelf stock goes to the oldest open orders first. A line
+// gets a ✓ when the stock left after older orders still covers it. Returns
+// "orderNumber|lineIndex" keys for the lines that are covered.
+// Packs already sent per line of an order (part sends to a dealer), from the
+// packs sent per SKU. A SKU on two lines fills the first line first.
+function sentPerLine(items: string, sentBySku: Record<string, number> | undefined) {
+  const left: Record<string, number> = { ...(sentBySku || {}) };
+  return String(items || "")
+    .split("\n")
+    .map((line) => {
+      const { qty, sku } = parseLine(line);
+      if (!qty || !sku || !left[sku]) return 0;
+      const sent = Math.min(left[sku], qty);
+      left[sku] -= sent;
+      return sent;
+    });
+}
+
+const isPartSent = (o: Order) => lower(o.orderStatus).startsWith("part sent");
+
+function fifoCovered(
+  orders: Order[],
+  leftBySku: Record<string, number> | null,
+  sentByOrder: Record<string, Record<string, number>> = {}
+) {
+  const covered = new Set<string>();
+  if (!leftBySku) return covered;
+  const left: Record<string, number> = {};
+  Object.keys(leftBySku).forEach((k) => (left[k] = Math.max(leftBySku[k], 0)));
+  const open = orders
+    .filter((o) => !STOCK_ALREADY_OFF.includes(lower(o.orderStatus)) && !lower(o.paymentStatus).includes("void") && !isOnHold(o))
+    .sort(oldestFirst);
+  open.forEach((o) => {
+    const sent = sentPerLine(o.items, sentByOrder[o.orderNumber]);
+    String(o.items || "")
+      .split("\n")
+      .forEach((line, i) => {
+        const parsed = parseLine(line);
+        const sku = parsed.sku;
+        const qty = parsed.qty - (sent[i] || 0); // packs already sent are off the shelf
+        if (parsed.qty && qty <= 0) return;
+        if (!qty || !sku || /-CC-/.test(sku) || !(sku in left)) return;
+        if (left[sku] >= qty) covered.add(`${o.orderNumber}|${i}`);
+        left[sku] = Math.max(left[sku] - qty, 0); // the older order holds these packs either way
+      });
+  });
+  return covered;
+}
+
+// READY: every line still to send has a ✓ (the shelf covers the whole order,
+// after older orders have taken theirs). Lines already sent don't count.
+// Returns null for orders that aren't waiting to be packed.
+function orderReadiness(order: Order, covered: Set<string>, sentBySku: Record<string, number> | undefined) {
+  if (!order.items || STOCK_ALREADY_OFF.includes(lower(order.orderStatus)) || lower(order.paymentStatus).includes("void") || isOnHold(order)) {
+    return null;
+  }
+  const sent = sentPerLine(order.items, sentBySku);
+  let toSend = 0;
+  let onShelf = 0;
+  order.items.split("\n").forEach((line, i) => {
+    const qty = parseLine(line).qty;
+    if (!qty || (sent[i] || 0) >= qty) return; // not an item line, or already sent
+    toSend++;
+    if (covered.has(`${order.orderNumber}|${i}`)) onShelf++;
+  });
+  if (toSend === 0) return null;
+  return { ready: onShelf === toSend, toSend, onShelf };
+}
+
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: "all", label: "ORDERS" }, // open orders only; finished ones live under COMPLETED
+  { id: "awaiting", label: "AWAITING PAYMENT" },
+  { id: "topack", label: "TO PACK" },
+  { id: "onhold", label: "ON HOLD" },
+  { id: "shipped", label: "SHIPPED" },
+  { id: "completed", label: "COMPLETED" },
+  { id: "problems", label: "NEEDS ATTENTION" },
+];
+
+// "R1,250.00" → 1250
+const amount = (value: string) => {
+  const n = Number(String(value || "").replace(/[^0-9.]/g, ""));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const lower = (value: string) => String(value || "").toLowerCase();
+const isPaid = (o: Order) => lower(o.paymentStatus).startsWith("paid");
+// Shop orders from a dealer link: packed first, invoiced in Zoho afterwards
+const isDealer = (o: Order) => lower(o.paymentMethod) === "dealer";
+const isProblem = (o: Order) =>
+  !isOnHold(o) && (lower(o.paymentStatus).includes("mismatch") || lower(o.paymentStatus).includes("check"));
+
+function matchesFilter(order: Order, filter: Filter) {
+  const status = lower(order.orderStatus);
+  if (filter === "onhold") return isOnHold(order) && !lower(order.paymentStatus).includes("void");
+  if (isOnHold(order)) return false; // held orders only show under ON HOLD
+  switch (filter) {
+    case "awaiting":
+      return lower(order.paymentStatus) === "pending";
+    case "topack":
+      return (isPaid(order) || isDealer(order)) && !["shipped", "completed", "cancelled"].includes(status);
+    case "shipped":
+      return status === "shipped";
+    case "completed":
+      return status === "completed";
+    case "problems":
+      return isProblem(order);
+    default:
+      // Main list: hide finished orders (completed, cancelled, void)
+      return !["completed", "cancelled"].includes(status) && !lower(order.paymentStatus).includes("void");
+  }
+}
+
+function paymentColour(order: Order) {
+  if (isProblem(order)) return "text-red-400";
+  if (isPaid(order)) return "text-green-500";
+  if (lower(order.paymentStatus) === "invoiced") return "text-blue-400";
+  return "text-yellow-400";
+}
+
+function escapeHtml(value: string) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+// Opens a clean, printable packing slip in a new tab.
+function printPackingSlip(order: Order) {
+  const win = window.open("", "_blank", "width=800,height=900");
+  if (!win) return;
+
+  const items = escapeHtml(order.items).split("\n").map((line) => `<li>${line}</li>`).join("");
+  const deliveryTo = order.deliveryAddress || order.deliveryMethod;
+
+  win.document.write(`<!doctype html>
+<html><head><meta charset="utf-8"><title>Packing slip ${escapeHtml(order.orderNumber)}</title>
+<style>
+  body { font-family: Arial, Helvetica, sans-serif; color: #000; margin: 32px; }
+  h1 { margin: 0; letter-spacing: 3px; } .brand { color: #2a8f00; margin: 2px 0 24px; font-weight: bold; }
+  .order { font-size: 28px; font-weight: bold; margin: 0 0 16px; }
+  .box { border: 2px solid #000; border-radius: 8px; padding: 14px 18px; margin-bottom: 16px; }
+  .label { font-size: 11px; font-weight: bold; letter-spacing: 2px; color: #555; margin: 0 0 4px; }
+  .big { font-size: 20px; font-weight: bold; margin: 0; }
+  ul { margin: 6px 0 0; padding-left: 20px; font-size: 16px; line-height: 1.6; }
+  .row { display: flex; gap: 16px; } .row .box { flex: 1; }
+  .foot { margin-top: 28px; text-align: center; font-weight: bold; letter-spacing: 2px; }
+  @media print { .noprint { display: none; } body { margin: 12mm; } }
+</style></head><body>
+  <button class="noprint" onclick="window.print()" style="float:right;padding:10px 18px;font-weight:bold">PRINT</button>
+  <h1>GERONIMO</h1><p class="brand">BAITS · BUILT TO HUNT</p>
+  <p class="order">${escapeHtml(order.orderNumber)}</p>
+  <div class="row">
+    <div class="box"><p class="label">CUSTOMER</p><p class="big">${escapeHtml(order.customerName)}</p>
+      <p>${escapeHtml(order.customerPhone)}<br>${escapeHtml(order.customerEmail)}</p></div>
+    <div class="box"><p class="label">ORDER DATE</p><p class="big">${escapeHtml(order.date)}</p>
+      <p>${escapeHtml(order.paymentStatus)}</p></div>
+  </div>
+  <div class="box"><p class="label">DELIVER TO</p>
+    ${order.lockerCode ? `<p class="big">PUDO LOCKER ${escapeHtml(order.lockerCode)}</p>` : ""}
+    <p class="big" style="font-size:16px">${escapeHtml(deliveryTo)}</p></div>
+  <div class="box"><p class="label">PACK${order.huntBox ? ` · ${escapeHtml(order.huntBox)}` : ""}</p><ul>${items}</ul></div>
+  <p class="foot">THANK YOU FOR HUNTING WITH GERONIMO · #WeMakeItFishTakeIt</p>
+</body></html>`);
+  win.document.close();
+}
+
+// Public (website / Zoho customers) and dealer orders get their own screens.
+// Shelf stock is still shared first-in-first-out across BOTH lists.
+export type OrderScope = "public" | "dealer";
+
+export default function OrdersDashboard({ scope }: { scope: OrderScope }) {
+  const [allOrders, setOrders] = useState<Order[]>([]);
+  const orders = useMemo(
+    () => allOrders.filter((o) => (scope === "dealer" ? isDealer(o) : !isDealer(o))),
+    [allOrders, scope]
+  );
+  const [loading, setLoading] = useState(true);
+  const [updatingOrder, setUpdatingOrder] = useState("");
+  const [error, setError] = useState("");
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [packing, setPacking] = useState<Order | null>(null);
+  const [ambassadorCodes, setAmbassadorCodes] = useState<{ code: string; name: string }[]>([]);
+  const [leftBySku, setLeftBySku] = useState<Record<string, number> | null>(null);
+  // Packs already sent per SKU, for dealer orders sent in parts
+  const [sentByOrder, setSentByOrder] = useState<Record<string, Record<string, number>>>({});
+
+  async function loadSent(orderNumber: string) {
+    try {
+      const r = await fetch("/api/admin/pack", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderNumber, progressOnly: true }),
+      });
+      const d = await r.json();
+      if (d?.success && d.packed && typeof d.packed === "object") {
+        setSentByOrder((cur) => ({ ...cur, [orderNumber]: d.packed }));
+      }
+    } catch {
+      // leave the lines as they are
+    }
+  }
+
+  const partSentKey = allOrders
+    .filter(isPartSent)
+    .map((o) => o.orderNumber)
+    .join(",");
+  useEffect(() => {
+    if (!partSentKey) return;
+    partSentKey.split(",").forEach((n) => loadSent(n));
+  }, [partSentKey]);
+
+  // Stock on the shelf (Left) per SKU, for the ✓ next to each order line
+  useEffect(() => {
+    fetch("/api/admin/inventory", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (!data.success || !Array.isArray(data.items)) return;
+        const m: Record<string, number> = {};
+        data.items.forEach((i: { sku: string; left: number }) => (m[String(i.sku).toUpperCase()] = Number(i.left) || 0));
+        setLeftBySku(m);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Ambassador codes for the referral picker on each order
+  useEffect(() => {
+    sheetAction<{ ambassadors: { code: string; name: string }[] }>("getAmbassadors").then((data) => {
+      if (data.success) setAmbassadorCodes((data.ambassadors || []).map((a) => ({ code: a.code, name: a.name })));
+    });
+  }, []);
+
+  async function setReferral(orderNumber: string, code: string) {
+    setError("");
+    const data = await sheetAction("setReferral", { orderNumber, code });
+    if (!data.success) {
+      setError(`Couldn't set the ambassador on ${orderNumber}: ${data.error || "try again"}`);
+      return;
+    }
+    setOrders((current) => current.map((o) => (o.orderNumber === orderNumber ? { ...o, referral: code } : o)));
+  }
+
+  const [invoiceDrafts, setInvoiceDrafts] = useState<Record<string, string>>({});
+
+  // Dealer orders: link the Zoho invoice so the Zoho sync updates this order
+  // instead of adding the invoice as a second order
+  async function linkInvoice(orderNumber: string) {
+    const raw = (invoiceDrafts[orderNumber] || "").trim().toUpperCase();
+    const invoice = /^\d+$/.test(raw) ? `INV-${raw.padStart(6, "0")}` : raw;
+    setError("");
+    const data = await sheetAction<{ invoice: string; mergedCopy?: boolean }>("linkInvoice", { orderNumber, invoice });
+    if (!data.success) {
+      setError(`Couldn't link the invoice to ${orderNumber}: ${data.error || "try again"}`);
+      return;
+    }
+    if (data.mergedCopy) loadOrders(); // the Zoho copy of the invoice was folded in
+    setOrders((current) =>
+      current.map((o) =>
+        o.orderNumber === orderNumber
+          ? {
+              ...o,
+              zohoInvoice: invoice,
+              paymentStatus:
+                invoice && ["awaiting invoice", ""].includes(lower(o.paymentStatus))
+                  ? "Invoiced"
+                  : !invoice && lower(o.paymentStatus) === "invoiced"
+                    ? "Awaiting invoice"
+                    : o.paymentStatus,
+            }
+          : o
+      )
+    );
+    setInvoiceDrafts((d) => ({ ...d, [orderNumber]: "" }));
+  }
+
+  async function loadOrders() {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch("/api/admin/orders", { cache: "no-store" });
+
+      if (response.status === 401) {
+        window.location.href = "/admin/login";
+        return;
+      }
+
+      const data = response.ok ? await response.json() : [];
+      setOrders(Array.isArray(data) ? data : []);
+      if (!response.ok) setError("Couldn't load orders from the sheet.");
+    } catch (err) {
+      console.error("Could not load orders:", err);
+      setOrders([]);
+      setError("Couldn't load orders. Check your connection and refresh.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadOrders();
+  }, []);
+
+  async function updateOrderStatus(orderNumber: string, orderStatus: string) {
+    try {
+      setUpdatingOrder(orderNumber);
+      setError("");
+
+      const response = await fetch("/api/admin/update-order-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderNumber, orderStatus }),
+      });
+
+      if (response.status === 401) {
+        window.location.href = "/admin/login";
+        return;
+      }
+
+      const data = await response.json();
+      if (!data.success) {
+        setError(`Couldn't update ${orderNumber}. Try again.`);
+        return;
+      }
+
+      // Show the change straight away; the published sheet can lag behind.
+      setOrders((current) =>
+        current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus } : o))
+      );
+    } catch (err) {
+      console.error("Update failed:", err);
+      setError(`Couldn't update ${orderNumber}. Try again.`);
+    } finally {
+      setUpdatingOrder("");
+    }
+  }
+
+
+  // Park an order until later; the note (e.g. "15 Dec") shows on the card
+  function putOnHold(order: Order) {
+    const note = window.prompt(
+      `Put ${order.orderNumber} on hold?\nIt leaves the packing queue until you bring it back.\n\nUntil when / why? (optional, e.g. "pays 15 Dec")`,
+      ""
+    );
+    if (note === null) return; // cancelled
+    const clean = note.trim().replace(/\s+/g, " ").slice(0, 60);
+    updateOrderStatus(order.orderNumber, clean ? `On hold – ${clean}` : "On hold");
+  }
+
+  const stats = useMemo(() => {
+    const paid = orders.filter(isPaid);
+    return {
+      total: orders.length,
+      awaiting: orders.filter((o) => matchesFilter(o, "awaiting")).length,
+      toPack: orders.filter((o) => matchesFilter(o, "topack")).length,
+      problems: orders.filter(isProblem).length,
+      // Days the oldest open order has been waiting
+      oldestOpen: orders
+        .filter(isOpen)
+        .reduce<number | null>((max, o) => {
+          const d = daysSince(o.date);
+          return d === null ? max : max === null ? d : Math.max(max, d);
+        }, null),
+      // Revenue only counts orders that have actually been paid.
+      revenue: paid.reduce((sum, o) => sum + amount(o.amountPaid || o.grandTotal), 0),
+    };
+  }, [orders]);
+
+  const covered = useMemo(() => fifoCovered(allOrders, leftBySku, sentByOrder), [allOrders, leftBySku, sentByOrder]);
+
+  const visibleOrders = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return orders
+      .filter((o) => matchesFilter(o, filter))
+      .filter((o) =>
+        !q
+          ? true
+          : [o.orderNumber, o.customerName, o.customerEmail, o.customerPhone, o.lockerCode, o.deliveryMethod, o.items]
+              .join(" ")
+              .toLowerCase()
+              .includes(q)
+      )
+      .sort(oldestFirst);
+  }, [orders, filter, search]);
+
+  return (
+    <main className="admin-bg min-h-screen px-4 py-10 text-white md:px-6">
+      {packing && (
+        <PackPanel
+          order={packing}
+          onClose={() => setPacking(null)}
+          onPacked={(orderNumber, orderStatus) => {
+            setPacking(null);
+            if (orderStatus.toLowerCase().startsWith("part sent")) loadSent(orderNumber);
+            // Show it straight away; the published sheet can lag behind.
+            setOrders((current) =>
+              current.map((o) => (o.orderNumber === orderNumber ? { ...o, orderStatus } : o))
+            );
+          }}
+        />
+      )}
+      <section className="mx-auto max-w-7xl">
+        {scope === "dealer" ? (
+          <AdminNav current="/admin/dealer-orders" title="DEALER ORDERS" subtitle="Orders from your shops' private order links." />
+        ) : (
+          <AdminNav current="/admin" title="PUBLIC ORDERS" subtitle="Website and customer orders: payments and packing progress." />
+        )}
+
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
+          <Stat label="TOTAL ORDERS" value={stats.total} />
+          <Stat label="AWAITING PAYMENT" value={stats.awaiting} tone="yellow" />
+          <Stat label="TO PACK" value={stats.toPack} />
+          <Stat label="NEEDS ATTENTION" value={stats.problems} tone={stats.problems ? "red" : "grey"} />
+          <Stat
+            label="OLDEST OPEN ORDER"
+            value={stats.oldestOpen === null ? "—" : ageText(stats.oldestOpen)}
+            tone={stats.oldestOpen === null ? "grey" : stats.oldestOpen >= 21 ? "red" : stats.oldestOpen >= 7 ? "yellow" : "green"}
+          />
+          <Stat label="REVENUE (PAID)" value={`R${stats.revenue.toFixed(2)}`} />
+        </div>
+
+        <div className="mt-10 rounded-3xl border border-green-500/20 bg-black/70 p-4 md:p-6">
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <h2 className="text-2xl font-black">ORDERS</h2>
+            <div className="flex gap-3">
+              <input
+                type="search"
+                placeholder="Search order, name, phone, locker..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-xl border border-green-500/30 bg-black px-4 py-2 text-sm text-white outline-none focus:border-green-500 md:w-80"
+              />
+              <button
+                onClick={loadOrders}
+                className="rounded-xl border border-green-500 px-4 py-2 text-sm font-bold text-green-500 transition hover:bg-green-500 hover:text-black"
+              >
+                REFRESH
+              </button>
+            </div>
+          </div>
+
+          <div className="mb-5 flex flex-wrap gap-2">
+            {FILTERS.map((f) => {
+              const count = orders.filter((o) => matchesFilter(o, f.id)).length;
+              return (
+                <button
+                  key={f.id}
+                  onClick={() => setFilter(f.id)}
+                  className={`rounded-full px-4 py-2 text-xs font-black tracking-wider transition ${
+                    filter === f.id
+                      ? "bg-green-500 text-black"
+                      : "border border-green-500/30 text-green-500 hover:border-green-500"
+                  }`}
+                >
+                  {f.label} ({count})
+                </button>
+              );
+            })}
+          </div>
+
+          {error && (
+            <p className="mb-5 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-bold text-red-400">
+              {error}
+            </p>
+          )}
+
+          {loading ? (
+            <div className="rounded-2xl border border-green-500/20 bg-black p-8 text-center text-gray-400">
+              Loading orders...
+            </div>
+          ) : visibleOrders.length === 0 ? (
+            <div className="rounded-2xl border border-green-500/20 bg-black p-8 text-center text-gray-400">
+              {orders.length === 0 ? (scope === "dealer" ? "No dealer orders yet." : "No orders found yet.") : "No orders match this view."}
+            </div>
+          ) : (
+            <div className="grid gap-4">
+              {visibleOrders.map((order) => {
+                const currentStatus = order.orderStatus || "Processing";
+                const isUpdating = updatingOrder === order.orderNumber;
+                const age = isOpen(order) ? daysSince(order.date) : null;
+                const readiness = orderReadiness(order, covered, sentByOrder[order.orderNumber]);
+                const ready = Boolean(readiness?.ready);
+
+                return (
+                  <div
+                    key={order.orderNumber}
+                    className={`rounded-2xl border bg-black p-5 ${
+                      !readiness
+                        ? "border-green-500/20"
+                        : ready
+                          ? "border-green-500 shadow-lg shadow-green-500/20"
+                          : "border-red-500/60"
+                    }`}
+                  >
+                    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                      <div>
+                        <p className="text-xs font-bold tracking-[0.25em] text-green-500">
+                          ORDER · {order.date}
+                        </p>
+                        <div className="mt-1 flex flex-wrap items-center gap-3">
+                          <h3 className="text-2xl font-black">{order.orderNumber}</h3>
+                          {isDealer(order) && (
+                            <span className="rounded-full border border-blue-400/50 bg-blue-400/10 px-3 py-1 text-xs font-black tracking-wider text-blue-400">
+                              🏪 DEALER
+                            </span>
+                          )}
+                          {isOnHold(order) && (
+                            <span className="rounded-full border border-orange-400/50 bg-orange-400/10 px-3 py-1 text-xs font-black tracking-wider text-orange-400">
+                              ⏸ ON HOLD
+                            </span>
+                          )}
+                          {age !== null && (
+                            <span
+                              className={`rounded-full border px-3 py-1 text-xs font-black tracking-wider ${ageTone(age)}`}
+                              title="How long this order has been with you"
+                            >
+                              ⏱ {age === 0 ? "CAME IN TODAY" : `${ageText(age)} WITH YOU`}
+                            </span>
+                          )}
+
+                        </div>
+                        <p className="mt-2 text-gray-300">{order.customerName || "No customer"}</p>
+                        <p className="text-sm text-gray-500">
+                          {order.customerPhone}
+                          {order.customerPhone && order.customerEmail ? " · " : ""}
+                          {order.customerEmail}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-wrap items-start gap-4 md:flex-nowrap">
+                      {readiness && (
+                        <div
+                          className={`rounded-xl px-5 py-3 text-center ${
+                            ready ? "bg-green-500 text-black" : "bg-red-600 text-white"
+                          }`}
+                          title={ready ? "Every bait still to send is on the shelf" : "Some baits on this order aren't on the shelf yet"}
+                        >
+                          <p className="text-lg font-black leading-tight tracking-wider">{ready ? "✅ READY" : "❌ NOT READY"}</p>
+                          <p className="text-xs font-bold opacity-80">
+                            {readiness.onShelf} of {readiness.toSend} lines on the shelf
+                          </p>
+                        </div>
+                      )}
+                      <div className="text-left md:text-right">
+                        <p className="text-sm text-gray-400">Total</p>
+                        <p className="text-2xl font-black text-green-500">R{amount(order.grandTotal).toFixed(2)}</p>
+                        {order.amountPaid && (
+                          <p className="text-xs text-gray-500">Paid R{amount(order.amountPaid).toFixed(2)}</p>
+                        )}
+                      </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                      <Info label="PAYMENT STATUS" className={paymentColour(order)}>
+                        {order.paymentStatus || "Pending"}
+                      </Info>
+                      <Info label="ORDER STATUS" className={isOnHold(order) ? "text-orange-400" : "text-green-500"}>
+                        {currentStatus}
+                      </Info>
+                      <Info label="DELIVERY">
+                        {order.lockerCode ? (
+                          <>
+                            <span className="text-green-500">PUDO {order.lockerCode}</span>
+                            <span className="block text-xs font-normal text-gray-400">
+                              {order.deliveryAddress || order.deliveryMethod}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            {order.deliveryMethod || "Not supplied"}
+                            {isDealer(order) && order.deliveryAddress && (
+                              <span className="block text-xs font-normal text-yellow-400">{order.deliveryAddress}</span>
+                            )}
+                          </>
+                        )}
+                      </Info>
+                    </div>
+
+                    {isDealer(order) && (
+                      <div className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-500">
+                        ZOHO INVOICE
+                        {order.zohoInvoice ? (
+                          <>
+                            <span className="rounded-lg border border-blue-400/40 px-3 py-2 text-sm font-black text-blue-400">
+                              {order.zohoInvoice}
+                            </span>
+                            <button
+                              onClick={() => {
+                                if (window.confirm(`Unlink ${order.zohoInvoice} from ${order.orderNumber}?`)) {
+                                  setInvoiceDrafts((d) => ({ ...d, [order.orderNumber]: "" }));
+                                  sheetAction("linkInvoice", { orderNumber: order.orderNumber, invoice: "" }).then(loadOrders);
+                                }
+                              }}
+                              className="text-xs text-gray-500 underline hover:text-red-400"
+                            >
+                              unlink
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <input
+                              value={invoiceDrafts[order.orderNumber] || ""}
+                              onChange={(e) => setInvoiceDrafts((d) => ({ ...d, [order.orderNumber]: e.target.value }))}
+                              placeholder="INV-000052 or 52"
+                              className="w-40 rounded-lg border border-green-500/30 bg-black px-3 py-2 text-sm font-bold text-white outline-none focus:border-green-500"
+                            />
+                            <button
+                              disabled={!(invoiceDrafts[order.orderNumber] || "").trim()}
+                              onClick={() => linkInvoice(order.orderNumber)}
+                              className="rounded-lg border border-green-500/40 px-3 py-2 text-sm font-black text-green-500 transition hover:bg-green-500 hover:text-black disabled:opacity-40"
+                            >
+                              LINK
+                            </button>
+                            <span className="font-normal">Invoice it in Zoho, then link it here</span>
+                          </>
+                        )}
+                      </div>
+                    )}
+
+                    <label className="mt-4 flex flex-wrap items-center gap-2 text-xs font-bold text-gray-500">
+                      AMBASSADOR
+                      <select
+                        value={order.referral || ""}
+                        onChange={(e) => setReferral(order.orderNumber, e.target.value)}
+                        className="rounded-lg border border-green-500/30 bg-black px-3 py-2 text-sm font-bold text-green-500"
+                      >
+                        <option value="">— none —</option>
+                        {ambassadorCodes.map((a) => (
+                          <option key={a.code} value={a.code}>
+                            {a.name} ({a.code})
+                          </option>
+                        ))}
+                        {order.referral && !ambassadorCodes.some((a) => a.code === order.referral) && (
+                          <option value={order.referral}>{order.referral} (unknown code)</option>
+                        )}
+                      </select>
+                    </label>
+
+                    <div className="mt-5 rounded-xl border border-green-500/10 bg-black/70 p-4">
+                      <p className="text-xs font-bold text-gray-500">
+                        ITEMS{order.huntBox ? ` · ${order.huntBox}` : ""}
+                      </p>
+                      {!order.items ? (
+                        <p className="mt-2 text-sm text-gray-300">No items listed</p>
+                      ) : (
+                        <ul className="mt-2 space-y-0.5 text-sm text-gray-300">
+                          {(() => {
+                            const sent = sentPerLine(order.items, sentByOrder[order.orderNumber]);
+                            // Packed / shipped / completed: everything on the order has gone out
+                            const orderSent = ["packed", "shipped", "completed"].includes(lower(order.orderStatus));
+                            return order.items.split("\n").map((line, i) => {
+                              const qty = parseLine(line).qty;
+                              const allSent = orderSent || (qty > 0 && sent[i] >= qty);
+                              const someSent = !allSent && sent[i] > 0;
+                              return (
+                                <li
+                                  key={i}
+                                  className={`flex flex-wrap items-baseline gap-x-2 ${allSent ? "text-gray-600" : ""}`}
+                                >
+                                  <span className={`whitespace-pre-wrap ${allSent ? "line-through decoration-gray-600" : ""}`}>
+                                    {line}
+                                  </span>
+                                  {allSent && (
+                                    <span className="rounded bg-gray-800 px-1.5 py-0.5 text-[10px] font-black text-gray-400">
+                                      SENT
+                                    </span>
+                                  )}
+                                  {someSent && (
+                                    <span className="rounded bg-yellow-400/15 px-1.5 py-0.5 text-[10px] font-black text-yellow-400">
+                                      {sent[i]} OF {qty} SENT
+                                    </span>
+                                  )}
+                                  {!allSent && covered.has(`${order.orderNumber}|${i}`) && (
+                                    <span className="text-lg font-black leading-none text-green-500" title="In stock for this order">
+                                      ✓
+                                    </span>
+                                  )}
+                                </li>
+                              );
+                            });
+                          })()}
+                        </ul>
+                      )}
+                    </div>
+
+                    <div className="mt-5 flex flex-wrap gap-3">
+                      {STATUS_BUTTONS.map((status) => (
+                        <button
+                          key={status}
+                          disabled={isUpdating || currentStatus === status}
+                          onClick={() => updateOrderStatus(order.orderNumber, status)}
+                          className={`rounded-xl px-4 py-3 text-sm font-black transition ${
+                            currentStatus === status
+                              ? "bg-green-500 text-black"
+                              : "border border-green-500/40 text-green-500 hover:bg-green-500 hover:text-black"
+                          } disabled:cursor-not-allowed disabled:opacity-60`}
+                        >
+                          {isUpdating ? "UPDATING..." : status.toUpperCase()}
+                        </button>
+                      ))}
+
+                      <div className="flex flex-wrap gap-3 md:ml-auto">
+                      {isOnHold(order) ? (
+                        <button
+                          disabled={isUpdating}
+                          onClick={() => updateOrderStatus(order.orderNumber, "Processing")}
+                          className="rounded-xl bg-orange-400 px-4 py-3 text-sm font-black text-black transition hover:bg-orange-300 disabled:opacity-60"
+                        >
+                          ▶ BACK TO QUEUE
+                        </button>
+                      ) : (
+                        !["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
+                          <button
+                            disabled={isUpdating}
+                            onClick={() => putOnHold(order)}
+                            className="rounded-xl border border-orange-400/50 px-4 py-3 text-sm font-black text-orange-400 transition hover:bg-orange-400 hover:text-black disabled:opacity-60"
+                          >
+                            ⏸ ON HOLD
+                          </button>
+                        )
+                      )}
+                      {!isOnHold(order) && !["packed", "shipped", "completed", "cancelled"].includes(currentStatus.toLowerCase()) && (
+                        <button
+                          onClick={() => setPacking(order)}
+                          className="rounded-xl bg-green-500 px-4 py-3 text-sm font-black text-black transition hover:bg-green-400"
+                        >
+                          📦 PACK &amp; SCAN
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => printPackingSlip(order)}
+                        className="rounded-xl border border-white/30 px-4 py-3 text-sm font-black text-white transition hover:bg-white hover:text-black"
+                      >
+                        🖨 PACKING SLIP
+                      </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  tone = "green",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "green" | "yellow" | "red" | "grey";
+}) {
+  const colours = {
+    green: "border-green-500/20 text-green-500",
+    yellow: "border-yellow-500/30 text-yellow-400",
+    red: "border-red-500/40 text-red-400",
+    grey: "border-green-500/20 text-gray-500",
+  }[tone];
+
+  return (
+    <div className={`rounded-3xl border bg-black/70 p-5 ${colours.split(" ")[0]}`}>
+      <p className="text-xs font-bold text-gray-400">{label}</p>
+      <h2 className={`mt-3 text-2xl font-black md:text-3xl ${colours.split(" ")[1]}`}>{value}</h2>
+    </div>
+  );
+}
+
+function Info({
+  label,
+  className = "",
+  children,
+}: {
+  label: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-green-500/10 bg-black/70 p-4">
+      <p className="text-xs font-bold text-gray-500">{label}</p>
+      <div className={`mt-1 font-black ${className}`}>{children}</div>
+    </div>
+  );
+}

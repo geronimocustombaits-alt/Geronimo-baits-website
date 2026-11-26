@@ -59,8 +59,8 @@ export default function DealersPage() {
       <section className="mx-auto max-w-7xl">
         <AdminNav
           current="/admin/dealers"
-          title="DEALERS"
-          subtitle="Private order links for your shops. Their orders show on the Orders dashboard as Dealer orders."
+          title="DEALER LINKS"
+          subtitle="Private order links for your shops. Their orders show under Dealer Orders."
         />
 
         {error && (

@@ -3,16 +3,17 @@
 import { useEffect, useState } from "react";
 
 // Shared header + menu for every back office screen.
-// ORDERS and DEALERS show a count of orders still waiting to be packed.
+// PUBLIC ORDERS and DEALER ORDERS show a count of orders still waiting to be packed.
 
 const LINKS: { href: string; label: string; red?: boolean }[] = [
-  { href: "/admin", label: "ORDERS" },
+  { href: "/admin", label: "PUBLIC ORDERS" },
+  { href: "/admin/dealer-orders", label: "DEALER ORDERS", red: true },
   { href: "/admin/make", label: "MAKE" },
   { href: "/admin/production", label: "PRODUCTION" },
   { href: "/admin/stock", label: "STOCK" },
   { href: "/admin/sales", label: "SALES" },
   { href: "/admin/recap", label: "RECAP" },
-  { href: "/admin/dealers", label: "DEALERS", red: true },
+  { href: "/admin/dealers", label: "DEALER LINKS" },
   { href: "/admin/ambassadors", label: "AMBASSADORS" },
   { href: "/admin/labels", label: "🏷 LABELS" },
   { href: "/admin/scan", label: "📷 SCANNER" },
@@ -42,11 +43,10 @@ export default function AdminNav({
             !String(o.orderStatus || "").toLowerCase().startsWith("on hold") &&
             !String(o.paymentStatus || "").toLowerCase().includes("void")
         );
+        const dealer = (o: { paymentMethod?: string }) => String(o.paymentMethod || "").toLowerCase() === "dealer";
         setCounts({
-          "/admin": open.length,
-          "/admin/dealers": open.filter(
-            (o: { paymentMethod?: string }) => String(o.paymentMethod || "").toLowerCase() === "dealer"
-          ).length,
+          "/admin": open.filter((o: { paymentMethod?: string }) => !dealer(o)).length,
+          "/admin/dealer-orders": open.filter(dealer).length,
         });
       })
       .catch(() => {});
