@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { sheetAction } from "@/lib/sheetAction";
 
 // Shared header + menu for every back office screen.
 // PUBLIC ORDERS and DEALER ORDERS show a count of orders still waiting to be packed.
@@ -32,9 +33,15 @@ export default function AdminNav({
 
   // Open orders (not packed / shipped / completed / cancelled / void / on hold)
   useEffect(() => {
-    fetch("/api/admin/orders", { cache: "no-store" })
-      .then((r) => (r.ok ? r.json() : []))
-      .then((orders) => {
+    Promise.all([
+      fetch("/api/admin/orders", { cache: "no-store" }).then((r) => (r.ok ? r.json() : [])),
+      // Shops on the Retailers tab: their Zoho invoices count as dealer orders
+      sheetAction<{ dealers: { name: string }[] }>("getDealers").catch(() => ({ success: false, dealers: [] })),
+    ])
+      .then(([orders, dealerData]) => {
+        const shops = new Set(
+          ((dealerData as { dealers?: { name: string }[] }).dealers || []).map((d) => String(d.name || "").trim().toLowerCase())
+        );
         if (!Array.isArray(orders)) return;
         const done = ["packed", "shipped", "completed", "cancelled"];
         const open = orders.filter(
@@ -43,9 +50,11 @@ export default function AdminNav({
             !String(o.orderStatus || "").toLowerCase().startsWith("on hold") &&
             !String(o.paymentStatus || "").toLowerCase().includes("void")
         );
-        const dealer = (o: { paymentMethod?: string }) => String(o.paymentMethod || "").toLowerCase() === "dealer";
+        const dealer = (o: { paymentMethod?: string; customerName?: string }) =>
+          String(o.paymentMethod || "").toLowerCase() === "dealer" ||
+          shops.has(String(o.customerName || "").trim().toLowerCase());
         setCounts({
-          "/admin": open.filter((o: { paymentMethod?: string }) => !dealer(o)).length,
+          "/admin": open.filter((o: { paymentMethod?: string; customerName?: string }) => !dealer(o)).length,
           "/admin/dealer-orders": open.filter(dealer).length,
         });
       })

@@ -172,6 +172,10 @@ const lower = (value: string) => String(value || "").toLowerCase();
 const isPaid = (o: Order) => lower(o.paymentStatus).startsWith("paid");
 // Shop orders from a dealer link: packed first, invoiced in Zoho afterwards
 const isDealer = (o: Order) => lower(o.paymentMethod) === "dealer";
+// Any order from a shop: a dealer-link order, or a Zoho invoice for a customer
+// on the Retailers tab (e.g. Leo Cycles, Rod and Reel Leisure)
+const isShopOrder = (o: Order, shops: Set<string>) =>
+  isDealer(o) || shops.has(lower(o.customerName).trim());
 const isProblem = (o: Order) =>
   !isOnHold(o) && (lower(o.paymentStatus).includes("mismatch") || lower(o.paymentStatus).includes("check"));
 
@@ -256,9 +260,16 @@ export type OrderScope = "public" | "dealer";
 
 export default function OrdersDashboard({ scope }: { scope: OrderScope }) {
   const [allOrders, setOrders] = useState<Order[]>([]);
+  // Shop names from the Retailers tab (lower case), so their Zoho invoices count as dealer orders
+  const [shops, setShops] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    sheetAction<{ dealers: { name: string }[] }>("getDealers").then((data) => {
+      if (data.success) setShops(new Set((data.dealers || []).map((d) => lower(d.name).trim()).filter(Boolean)));
+    });
+  }, []);
   const orders = useMemo(
-    () => allOrders.filter((o) => (scope === "dealer" ? isDealer(o) : !isDealer(o))),
-    [allOrders, scope]
+    () => allOrders.filter((o) => (scope === "dealer" ? isShopOrder(o, shops) : !isShopOrder(o, shops))),
+    [allOrders, scope, shops]
   );
   const [loading, setLoading] = useState(true);
   const [updatingOrder, setUpdatingOrder] = useState("");
@@ -585,7 +596,7 @@ export default function OrdersDashboard({ scope }: { scope: OrderScope }) {
                         </p>
                         <div className="mt-1 flex flex-wrap items-center gap-3">
                           <h3 className="text-2xl font-black">{order.orderNumber}</h3>
-                          {isDealer(order) && (
+                          {isShopOrder(order, shops) && (
                             <span className="rounded-full border border-blue-400/50 bg-blue-400/10 px-3 py-1 text-xs font-black tracking-wider text-blue-400">
                               🏪 DEALER
                             </span>
