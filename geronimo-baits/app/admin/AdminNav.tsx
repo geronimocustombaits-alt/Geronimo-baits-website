@@ -29,7 +29,7 @@ export default function AdminNav({
 }) {
   const [counts, setCounts] = useState<Record<string, number>>({});
 
-  // Open orders (not packed / shipped / completed / cancelled / void)
+  // Open orders (not packed / shipped / completed / cancelled / void / on hold)
   useEffect(() => {
     fetch("/api/admin/orders", { cache: "no-store" })
       .then((r) => (r.ok ? r.json() : []))
@@ -39,6 +39,7 @@ export default function AdminNav({
         const open = orders.filter(
           (o: { orderStatus?: string; paymentStatus?: string }) =>
             !done.includes(String(o.orderStatus || "").toLowerCase()) &&
+            !String(o.orderStatus || "").toLowerCase().startsWith("on hold") &&
             !String(o.paymentStatus || "").toLowerCase().includes("void")
         );
         setCounts({
@@ -78,10 +79,10 @@ export default function AdminNav({
           const colours = link.red
             ? active
               ? "bg-red-500 text-black"
-              : "border border-red-500/60 bg-black/70 text-red-400 hover:border-red-500"
+              : "border border-red-500 bg-black text-red-400 hover:bg-red-500 hover:text-black"
             : active
               ? "bg-green-500 text-black"
-              : "border border-green-500/30 bg-black/70 text-green-500 hover:border-green-500";
+              : "border border-green-500 bg-black text-green-500 hover:bg-green-500 hover:text-black";
           return (
             <a
               key={link.href}
